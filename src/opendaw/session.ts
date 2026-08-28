@@ -37,6 +37,8 @@ export interface DawSession {
   project: Project;
   audioContext: AudioContext;
   sampleService: SampleService;
+  /** The engine node itself. Held so it can be disconnected on teardown. */
+  worklet: AudioWorkletNode;
 }
 
 /**
@@ -94,10 +96,23 @@ export async function createSession(boot: BootResult): Promise<DawSession> {
     soundfontService,
   });
 
-  // Builds the EngineWorklet and connects it. project.engine — the EngineFacade
-  // with play/stop/record — is only usable once this has run.
-  project.startAudioWorklet();
+  /*
+   * startAudioWorklet builds the EngineWorklet and returns it. It does NOT
+   * connect it — the name misleads, and discarding the return value is a
+   * silent failure.
+   *
+   * EngineWorklet extends AudioWorkletNode: it *is* the engine, as a node in
+   * the graph. Web Audio only calls process() on nodes that reach a
+   * destination, so an unconnected engine never runs at all. Not "runs
+   * silently" — the transport doesn't move, position stays at 0 and isPlaying
+   * never becomes true, which looks exactly like a dead Play button.
+   */
+  const worklet = project.startAudioWorklet();
+  worklet.connect(audioContext.destination);
+
+  // engine — the EngineFacade with play/stop/record — is only usable once the
+  // worklet has reported ready.
   await project.engine.isReady();
 
-  return { project, audioContext, sampleService };
+  return { project, audioContext, sampleService, worklet };
 }
