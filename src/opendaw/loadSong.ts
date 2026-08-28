@@ -23,6 +23,7 @@ import { InstrumentFactories, type Sample } from "@opendaw/studio-adapters";
 import { UUID } from "@opendaw/lib-std";
 import type { AudioData, TransientProtocol } from "@opendaw/lib-dsp";
 import type { Peaks } from "@opendaw/lib-fusion";
+import type { AudioUnitBox } from "@opendaw/studio-boxes";
 import { signedUrl, type Song, type SongFile } from "../runsheet";
 
 /**
@@ -47,6 +48,14 @@ export interface LoadedLane {
    * detail for the current zoom.
    */
   peaks: Peaks;
+  /**
+   * The lane's audio unit — its fader, pan, mute and solo live here.
+   *
+   * Carried on the lane rather than looked up later because the mixer has to
+   * write to the exact unit this waveform came from, and matching by name
+   * breaks the moment two takes share one.
+   */
+  unit: AudioUnitBox;
 }
 
 export interface LoadProgress {
@@ -135,7 +144,7 @@ export async function loadSongIntoProject(
        * has its own fader, mute and solo, which is the whole point of opening
        * stems rather than a mix.
        */
-      const { trackBox } = project.api.createInstrument(InstrumentFactories.Tape, {
+      const { trackBox, audioUnitBox } = project.api.createInstrument(InstrumentFactories.Tape, {
         name: laneName(p.file.name),
       });
 
@@ -153,6 +162,7 @@ export async function loadSongIntoProject(
         fileId: p.file.id,
         seconds: p.sample.duration,
         peaks: p.peaks,
+        unit: audioUnitBox,
       });
     });
   });

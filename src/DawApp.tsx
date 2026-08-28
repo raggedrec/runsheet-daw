@@ -20,6 +20,7 @@ import { useLook } from "./useLook";
 import { accents, skins } from "./theme";
 import { RecordPanel } from "./RecordPanel";
 import { StartScreen } from "./StartScreen";
+import { Mixer, audibility } from "./Mixer";
 import { collectTakes } from "./opendaw/take";
 import { saveSession } from "./session";
 import { uploadToIdeaDrop } from "./runsheet";
@@ -36,9 +37,6 @@ type Stage =
   | { name: "ready" }
   | { name: "loading"; progress: LoadProgress | null }
   | { name: "loaded" };
-
-/** Stable identity, so passing "nothing is muted" doesn't repaint every frame. */
-const NO_LANES: ReadonlySet<string> = new Set<string>();
 
 export default function DawApp() {
   const [stage, setStage] = useState<Stage>({ name: "booting" });
@@ -61,6 +59,12 @@ export default function DawApp() {
   /** Takes recorded this visit that haven't reached Idea Drop yet. */
   const [unsaved, setUnsaved] = useState(0);
   const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "failed">("idle");
+  /*
+   * Bumped after any mixer change. The mix lives in openDAW's boxes, not in
+   * React state — this is only the nudge that tells React to re-read them, so
+   * there's never a second copy to disagree with the graph.
+   */
+  const [mixRevision, setMixRevision] = useState(0);
   const skin = skins[look.skin];
   const accent = accents[look.accent];
 
@@ -173,6 +177,9 @@ export default function DawApp() {
     () => lanes.reduce((max, l) => Math.max(max, l.seconds), 0),
     [lanes],
   );
+
+  /* eslint-disable-next-line react-hooks/exhaustive-deps -- mixRevision is the trigger */
+  const audible = useMemo(() => audibility(lanes), [lanes, mixRevision]);
 
   const engine = session?.project.engine ?? null;
 
@@ -328,6 +335,9 @@ export default function DawApp() {
           fileId: `take:${crypto.randomUUID()}`,
           seconds: t.seconds,
           peaks: t.peaks,
+          // The take's lane is the track it was recorded onto, so its mixer
+          // strip is that track's audio unit.
+          unit: recordTrack.capture.audioUnitBox,
         })),
       ]);
       setUnsaved((n) => n + takes.length);
@@ -474,9 +484,18 @@ export default function DawApp() {
             position={seconds}
             duration={duration}
             bpm={song?.bpm ? tempoOf(song.bpm) : null}
-            muted={NO_LANES}
-            soloed={NO_LANES}
+            muted={audible.muted}
+            soloed={audible.soloed}
             onScrub={scrub}
+          />
+
+          <Mixer
+            project={session.project}
+            lanes={lanes}
+            skin={skin}
+            accent={accent.solid}
+            revision={mixRevision}
+            onChanged={() => setMixRevision((n) => n + 1)}
           />
         </>
       )}
