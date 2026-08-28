@@ -82,7 +82,12 @@ it bypasses RLS entirely.
 
 ## Licence
 
-GNU AGPL v3 or later. See `NOTICE`, and `LICENSE` once added.
+GNU AGPL v3 or later — see `LICENSE` for the full text and `NOTICE` for the
+copyright and attribution.
+
+Section 13 means anyone who uses this over a network is entitled to its source,
+so the running application links back to this repository from its footer. If
+you deploy a modified copy, point that link at your own fork.
 
 ## Keeping `npm audit` meaningful
 
