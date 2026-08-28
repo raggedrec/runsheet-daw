@@ -47,11 +47,32 @@ cleanly and then 404s at boot.
 
 ## What's here
 
-Phase 1: the engine boots and reports what came up — isolation, workers,
-worklets, Rust engine or TypeScript fallback, sample rate — plus whether the
-session arrived from Run Sheet.
+**Phase 1 — done.** The engine boots and reports what came up. Verified on
+macOS / Chrome 152, 28 Aug 2026:
+
+```
+cross-origin isolated : true
+SharedArrayBuffer     : true
+sample rate           : 48000 Hz
+context state         : running
+audio engine          : Rust (WASM)
+engine.wasm fetch     : 200 application/wasm 1,053,898 bytes
+```
 
 No timeline, no recording, no saving yet. Those are Phases 3 to 5.
+
+### Two things that cost time, so they're written down
+
+**`wasmUrl` is a prefix and must not end in `/wasm`.** The package appends
+`/wasm/engine.wasm` and `/wasm/plugins/device_*.wasm` itself. Getting this
+wrong produces `WebAssembly.compile(): expected magic word 00 61 73 6d, found
+3c 21 64 6f` — those bytes are `<!do`, because Vite's dev server answers a
+missing file with `index.html` at status **200**, so the library's `response.ok`
+check passes and HTML reaches the compiler. A 404 would have named the file.
+
+**A `false` from `WasmEngine.ensureReady` means no engine at all.** The
+studio-sdk README says a TypeScript engine stays active; the studio-core-wasm
+source says there is no other engine. Believe the source.
 
 ## Secrets
 
