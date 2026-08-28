@@ -1,9 +1,9 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
-import App from "./App";
+import DawApp from "./DawApp";
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
-    <App />
+    <DawApp />
   </StrictMode>,
 );
