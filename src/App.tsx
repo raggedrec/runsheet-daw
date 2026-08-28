@@ -6,7 +6,7 @@
  * engine all come up on a real machine — and if one of them doesn't, which.
  */
 import { useEffect, useState } from "react";
-import { boot, BootError, type BootResult } from "./opendawBoot";
+import { boot, startAudio, BootError, type AudioStart, type BootResult } from "./opendawBoot";
 import { isConfigured, requestedSong, supabase } from "./supabase";
 
 type Status =
@@ -17,6 +17,8 @@ type Status =
 export default function App() {
   const [status, setStatus] = useState<Status>({ state: "booting" });
   const [signedIn, setSignedIn] = useState<boolean | null>(null);
+  const [audio, setAudio] = useState<AudioStart | null>(null);
+  const [starting, setStarting] = useState(false);
   const song = requestedSong();
 
   useEffect(() => {
@@ -59,15 +61,41 @@ export default function App() {
         <h2 style={S.h2}>Engine</h2>
         {status.state === "booting" && <pre style={S.pre}>starting…</pre>}
         {status.state === "ready" && (
-          <pre style={S.pre}>
-            {[
-              `cross-origin isolated : ${self.crossOriginIsolated}`,
-              `SharedArrayBuffer     : ${typeof SharedArrayBuffer !== "undefined"}`,
-              `audio engine          : ${status.result.wasm ? "Rust (WASM)" : "TypeScript fallback"}`,
-              `sample rate           : ${status.result.sampleRate} Hz`,
-              `context state         : ${status.result.audioContext.state}`,
-            ].join("\n")}
-          </pre>
+          <>
+            <pre style={S.pre}>
+              {[
+                `cross-origin isolated : ${self.crossOriginIsolated}`,
+                `SharedArrayBuffer     : ${typeof SharedArrayBuffer !== "undefined"}`,
+                `sample rate           : ${status.result.sampleRate} Hz`,
+                `context state         : ${audio?.contextState ?? status.result.audioContext.state}`,
+                `audio engine          : ${
+                  audio === null
+                    ? "not started — press the button"
+                    : audio.wasm
+                      ? "Rust (WASM)"
+                      : "TypeScript fallback"
+                }`,
+                ...(audio ? [`engine.wasm fetch     : ${audio.wasmFetch}`] : []),
+              ].join("\n")}
+            </pre>
+            {/*
+              A click, because a browser will not run an AudioContext without
+              one. Trying the Rust engine before that returns false and looks
+              like the WASM being broken.
+            */}
+            <button
+              style={S.button}
+              disabled={starting || audio?.wasm === true}
+              onClick={() => {
+                setStarting(true);
+                void startAudio(status.result)
+                  .then(setAudio)
+                  .finally(() => setStarting(false));
+              }}
+            >
+              {starting ? "Starting…" : audio?.wasm ? "Engine running" : "Start audio engine"}
+            </button>
+          </>
         )}
         {status.state === "failed" && (
           <pre style={{ ...S.pre, color: "#b3261e" }}>
@@ -126,6 +154,10 @@ const S: Record<string, React.CSSProperties> = {
     background: "#fafafa", border: "1px solid rgba(28,17,10,.15)", padding: 12,
     font: "12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace",
     whiteSpace: "pre-wrap", margin: 0,
+  },
+  button: {
+    marginTop: 12, padding: "9px 16px", fontSize: 13, fontWeight: 600,
+    color: "#fff", background: "#004b84", border: 0, cursor: "pointer",
   },
   footer: { fontSize: 12, color: "rgba(28,17,10,.62)", marginTop: 24 },
   a: { color: "#004b84" },

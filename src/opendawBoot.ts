@@ -102,9 +102,18 @@ async function bootOnce(): Promise<BootResult> {
   });
 
   const audioContext = new AudioContext();
-  // Browsers start contexts suspended until a gesture; the caller resumes.
-  const wasm = await WasmEngine.ensureReady(audioContext);
 
+  /*
+   * The Rust engine is NOT started here.
+   *
+   * A browser creates an AudioContext suspended and won't run it until a user
+   * gesture. Calling ensureReady on a suspended context returned false and
+   * dropped silently to the TypeScript engine — which looks like the WASM
+   * being broken rather than the context not having been resumed yet.
+   *
+   * So starting the audio engine is its own step, triggered by a click, and
+   * it reports which of the two reasons it failed for.
+   */
   const audioWorklets = await AudioWorklets.createFor(audioContext);
   const engine = new EngineFacade();
 
@@ -112,7 +121,39 @@ async function bootOnce(): Promise<BootResult> {
     audioContext,
     audioWorklets,
     engine,
-    wasm,
+    wasm: false,
     sampleRate: audioContext.sampleRate,
   };
+}
+
+export interface AudioStart {
+  wasm: boolean;
+  contextState: AudioContextState;
+  /** HTTP status for engine.wasm, so a 404 is distinguishable from a refusal. */
+  wasmFetch: string;
+}
+
+/**
+ * Resumes the context and tries the Rust engine, on a user gesture.
+ *
+ * Reports enough to tell the two failure modes apart: the binaries not being
+ * served where the engine looks for them, versus the engine declining to start
+ * for some other reason. Guessing between those wasted a round trip once.
+ */
+export async function startAudio(result: BootResult): Promise<AudioStart> {
+  await result.audioContext.resume();
+
+  const wasmUrl = `${import.meta.env.BASE_URL}opendaw-wasm/wasm/engine.wasm`;
+  let wasmFetch: string;
+  try {
+    const res = await fetch(wasmUrl, { method: "HEAD" });
+    const size = res.headers.get("content-length");
+    wasmFetch = `${res.status} ${res.ok ? `(${Number(size ?? 0).toLocaleString()} bytes)` : "NOT FOUND"}`;
+  } catch (err) {
+    wasmFetch = `unreachable — ${err instanceof Error ? err.message : "?"}`;
+  }
+
+  const wasm = await WasmEngine.ensureReady(result.audioContext);
+
+  return { wasm, contextState: result.audioContext.state, wasmFetch };
 }
