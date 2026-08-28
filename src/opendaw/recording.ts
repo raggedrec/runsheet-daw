@@ -22,6 +22,7 @@
 import type { Project } from "@opendaw/studio-core";
 import { CaptureAudio } from "@opendaw/studio-core";
 import { InstrumentFactories } from "@opendaw/studio-adapters";
+import type { AudioUnitBox } from "@opendaw/studio-boxes";
 import { Option } from "@opendaw/lib-std";
 import type { Capture } from "@opendaw/studio-core";
 
@@ -86,19 +87,35 @@ export interface RecordTrack {
  * in Idea Drop three weeks later and a take called "Audio 1" is not.
  */
 export function addRecordTrack(project: Project, name: string): RecordTrack {
-  let capture: Capture | null = null;
+  let audioUnitBox: AudioUnitBox | null = null;
 
   project.editing.modify(() => {
-    const { audioUnitBox } = project.api.createInstrument(InstrumentFactories.Tape, { name });
-    // The capture is created alongside the audio unit and looked up by the
-    // unit's own id.
-    capture = project.captureDevices.get(audioUnitBox.address.uuid).unwrapOrNull();
+    audioUnitBox = project.api.createInstrument(InstrumentFactories.Tape, { name }).audioUnitBox;
   });
+
+  if (audioUnitBox === null) {
+    throw new RecordingError("The track wasn't created.", "Nothing was added to the project.");
+  }
+  const box: AudioUnitBox = audioUnitBox;
+
+  /*
+   * The lookup happens AFTER the transaction, not inside it.
+   *
+   * CaptureDevices learns about new audio units by subscribing to the box
+   * graph, and those subscribers don't run until the transaction commits.
+   * Asking inside modify() asks before the capture exists, which reads as
+   * "this track has no input" when the truth is "not yet".
+   */
+  const capture = project.captureDevices.get(box.address.uuid).unwrapOrNull()
+    // Fall back to identity rather than id: if the address isn't the key the
+    // manager files captures under, the capture itself still knows its unit.
+    ?? project.captureDevices.allCaptures().find((c) => c.audioUnitBox === box)
+    ?? null;
 
   if (capture === null) {
     throw new RecordingError(
       "The new track has no input.",
-      "The audio unit was created without a capture device. This is a bug — please report it.",
+      "openDAW created the track but no capture device came with it.",
     );
   }
   return { name, capture };

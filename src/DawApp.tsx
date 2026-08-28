@@ -191,6 +191,17 @@ export default function DawApp() {
       clock.stop(clock.seconds);
       setRolling(false);
     } else {
+      /*
+       * Position before play, always.
+       *
+       * play() on its own rolls the transport but produces silence until
+       * something sets a position — which is why clicking the timeline
+       * "fixed" it. Setting the position the playhead is already at costs
+       * nothing and makes pressing Play behave the same as clicking.
+       */
+      session.project.engine.setPosition(
+        session.project.tempoMap.secondsToPPQN(clock.seconds),
+      );
       session.project.engine.play();
       clock.start(clock.seconds);
       setRolling(true);
@@ -255,6 +266,9 @@ export default function DawApp() {
     setBusy(true);
     setRecError(null);
     try {
+      session.project.engine.setPosition(
+        session.project.tempoMap.secondsToPPQN(clock.seconds),
+      );
       await beginRecording(session.project, countIn);
       clock.start(clock.seconds);
       setRolling(true);
