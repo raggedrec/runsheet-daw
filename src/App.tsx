@@ -73,9 +73,10 @@ export default function App() {
                     ? "not started — press the button"
                     : audio.wasm
                       ? "Rust (WASM)"
-                      : "TypeScript fallback"
+                      : "NONE — the engine did not start"
                 }`,
                 ...(audio ? [`engine.wasm fetch     : ${audio.wasmFetch}`] : []),
+                ...(audio?.reason ? [`why                   : ${audio.reason}`] : []),
               ].join("\n")}
             </pre>
             {/*

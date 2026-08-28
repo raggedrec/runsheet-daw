@@ -7,7 +7,7 @@
  *   Workers.install(url)                — @opendaw/studio-core/workers-main.js
  *   AudioWorklets.install(url)          — @opendaw/studio-core/processors.js
  *   WasmEngine.install({...})           — the prebuilt Rust engine
- *   WasmEngine.ensureReady(context)     — falls back to TypeScript if false
+ *   WasmEngine.ensureReady(context)     — false means NO engine, not a fallback
  *   AudioWorklets.createFor(context)    — async, one per context
  *   Project.new(env)                    — env needs six things, see ProjectEnv
  *   audioWorklets.createEngine({project}) -> EngineWorklet
@@ -31,7 +31,15 @@ export interface BootResult {
   audioContext: AudioContext;
   audioWorklets: AudioWorklets;
   engine: EngineFacade;
-  /** False when the Rust engine couldn't start and TypeScript is running. */
+  /**
+   * False means NO ENGINE, not a fallback.
+   *
+   * The studio-sdk README says a false return leaves "the TypeScript engine
+   * active". studio-core-wasm's own source says the opposite, in a comment on
+   * the function itself: "There is no other engine to fall back to, so a
+   * caller that gets false has no working engine and must say so rather than
+   * carry on." Believe the implementation.
+   */
   wasm: boolean;
   sampleRate: number;
 }
@@ -107,12 +115,12 @@ async function bootOnce(): Promise<BootResult> {
    * The Rust engine is NOT started here.
    *
    * A browser creates an AudioContext suspended and won't run it until a user
-   * gesture. Calling ensureReady on a suspended context returned false and
-   * dropped silently to the TypeScript engine — which looks like the WASM
-   * being broken rather than the context not having been resumed yet.
+   * gesture, so starting the engine is its own step behind a click.
    *
-   * So starting the audio engine is its own step, triggered by a click, and
-   * it reports which of the two reasons it failed for.
+   * That turned out not to be the cause of the first failure — the context was
+   * running and engine.wasm returned 200, and it still refused. Keeping the
+   * split anyway: it's correct regardless, and it's what let the real reason
+   * be captured instead of guessed at.
    */
   const audioWorklets = await AudioWorklets.createFor(audioContext);
   const engine = new EngineFacade();
@@ -127,10 +135,13 @@ async function bootOnce(): Promise<BootResult> {
 }
 
 export interface AudioStart {
+  /** False means no engine at all. See BootResult.wasm. */
   wasm: boolean;
   contextState: AudioContextState;
   /** HTTP status for engine.wasm, so a 404 is distinguishable from a refusal. */
   wasmFetch: string;
+  /** Whatever ensureReady logged, captured rather than left in the console. */
+  reason: string | null;
 }
 
 /**
@@ -153,7 +164,25 @@ export async function startAudio(result: BootResult): Promise<AudioStart> {
     wasmFetch = `unreachable — ${err instanceof Error ? err.message : "?"}`;
   }
 
-  const wasm = await WasmEngine.ensureReady(result.audioContext);
-
-  return { wasm, contextState: result.audioContext.state, wasmFetch };
+  /*
+   * ensureReady swallows the real error into a console.warn and returns false.
+   * That's the only description of what actually went wrong, so it's captured
+   * here and put on screen — hunting it in DevTools is a round trip per guess,
+   * and two of my guesses have already been wrong.
+   */
+  let reason: string | null = null;
+  const warn = console.warn;
+  console.warn = (...args: unknown[]) => {
+    if (typeof args[0] === "string" && args[0].includes("WASM engine unavailable")) {
+      const err = args[1];
+      reason = err instanceof Error ? `${err.name}: ${err.message}` : String(err);
+    }
+    warn(...args);
+  };
+  try {
+    const wasm = await WasmEngine.ensureReady(result.audioContext);
+    return { wasm, contextState: result.audioContext.state, wasmFetch, reason };
+  } finally {
+    console.warn = warn;
+  }
 }
