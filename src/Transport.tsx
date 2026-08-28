@@ -10,7 +10,7 @@
  * Musicians ask both questions — "where are we in the arrangement" and "how
  * long is this" — and a DAW that answers only one makes you do arithmetic.
  */
-import { accents, font, radius, size, space, tracking, type AccentName, type Look, type Skin, LANE_HEIGHT } from "./theme";
+import { accents, font, radius, size, space, type AccentName, type Look, type Skin, LANE_HEIGHT } from "./theme";
 
 export interface TransportProps {
   skin: Skin;
@@ -94,7 +94,7 @@ export function Transport({
       </div>
 
       {bpm && (
-        <span style={{ font: `500 ${size.xs}px ${font.body}`, letterSpacing: tracking.caps, color: skin.fgSubtle }}>
+        <span style={{ font: `500 ${size.xs}px ${font.body}`, letterSpacing: '.08em', color: skin.fgSubtle }}>
           {bpm} BPM · 4/4
         </span>
       )}
@@ -109,7 +109,7 @@ export function Transport({
 function LookControls({ skin, look, onLook }: { skin: Skin; look: Look; onLook: (p: Partial<Look>) => void }) {
   const chip = (active: boolean): React.CSSProperties => ({
     font: `500 ${size.xs}px ${font.body}`,
-    letterSpacing: tracking.caps,
+    letterSpacing: '.08em',
     textTransform: "uppercase",
     padding: "5px 9px",
     borderRadius: radius.md,
@@ -121,8 +121,8 @@ function LookControls({ skin, look, onLook }: { skin: Skin; look: Look; onLook: 
 
   return (
     <div style={{ display: "flex", alignItems: "center", gap: space[2] }}>
-      <button style={chip(look.skin === "paper")} onClick={() => onLook({ skin: "paper" })}>
-        Paper
+      <button style={chip(look.skin === "light")} onClick={() => onLook({ skin: "light" })}>
+        Light
       </button>
       <button style={chip(look.skin === "dark")} onClick={() => onLook({ skin: "dark" })}>
         Dark

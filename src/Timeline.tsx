@@ -195,7 +195,7 @@ export function Timeline({
       // the stems happen to be in.
       ctx.fillStyle = laneColorFor(lane.name);
       ctx.fillRect(0, top, 4, laneHeight);
-      ctx.fillStyle = audible.get(lane.fileId) === false ? skin.fgSubtle : skin.laneLabel;
+      ctx.fillStyle = audible.get(lane.fileId) === false ? skin.fgSubtle : skin.fg;
       ctx.font = `500 ${size.xs}px ${font.body}`;
       ctx.textBaseline = "middle";
       ctx.fillText(lane.name.toUpperCase(), 14, top + laneHeight / 2);

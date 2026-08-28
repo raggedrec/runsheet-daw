@@ -1,207 +1,178 @@
 /**
- * The DAW's look: two skins, a few user choices, and hard limits on both.
+ * The DAW's look: Run Sheet's, so the two apps feel like one product across
+ * the tab boundary.
  *
- * The palette is Ragged Company Recordings' own, read out of the live
- * stylesheet at raggedcompanyrecordings.com rather than eyeballed from a
- * screenshot, so the DAW is the same object as the label. If the site changes,
- * re-read it rather than nudging hex codes until they look close.
+ * An earlier version of this file took the label site's player as the model —
+ * cream, letterpress shadows, Bebas caps. It looked like the website and
+ * nothing like the app the DAW opens from. Run Sheet's chrome is quieter:
+ * near-white surfaces on a light grey page, one solid blue for anything
+ * clickable, hairline borders, small uppercase labels. That reads better at
+ * the density a DAW needs, where a dozen controls sit in the space a player
+ * gives to three.
  *
- * Two skins, because a waveform needs contrast against the lane behind it and
- * there is no single background that flatters both a printed look and a
- * studio one:
+ * Two skins, because a waveform needs contrast against its lane and no single
+ * background gives it:
  *
- *   paper — light lanes, dark waveforms. Reads like the label's site.
- *   dark  — dark lanes, light waveforms. Reads like every other DAW.
+ *   light — Run Sheet's own palette. Pale lanes, dark waveforms.
+ *   dark  — the same layout inverted, for working at night against a mix.
  *
- * What the user can change is the accent — the playhead, the transport, the
- * highlights. What they cannot change is the relationship between a lane and
- * the waveform drawn on it. That's the legibility barrier: pick your colour,
- * but you can't pick one that makes the audio invisible.
+ * The user picks the skin, the accent and the lane height. They cannot pick a
+ * combination that makes the audio unreadable: accents ship their own
+ * foreground, and the lane/waveform relationship is fixed by the skin.
  */
 
-export type SkinName = "paper" | "dark";
+export type SkinName = "light" | "dark";
 
-/** The brand palette. Everything below is assembled from these. */
 export const brand = {
-  blue: "#004B84",
-  blue700: "#003A66",
-  blue500: "#005FA8",
-  blue100: "#D6E4EF",
-  red: "#C44536",
-  red700: "#9A3528",
-  yellow: "#FBAF01",
-  yellow700: "#C88B00",
-  paper: "#E9E9E9",
-  cream: "#ECDEC2",
-  white: "#FFFFFF",
-  ink: "#1C110A",
+  blue: "#1D4E89",
+  blueDeep: "#173F6E",
+  blueSoft: "#E8EEF5",
+  ink: "#1B2430",
+  red: "#C0453B",
+  amber: "#C88B00",
+  teal: "#2A7F86",
 } as const;
 
 /**
- * The accents a user may choose.
- *
- * Each carries its own foreground, because white text on the yellow is
- * unreadable and ink on the blue is worse. Pairing them here means a bad
- * combination can't be selected rather than being merely discouraged.
+ * Selectable accents, each with the foreground that stays readable on it.
+ * Pairing them here means an unreadable combination cannot be chosen, rather
+ * than merely being discouraged.
  */
 export const accents = {
-  blue: { name: "Blue", solid: brand.blue, hover: brand.blue700, fg: brand.white },
-  yellow: { name: "Yellow", solid: brand.yellow, hover: brand.yellow700, fg: brand.ink },
-  red: { name: "Red", solid: brand.red, hover: brand.red700, fg: brand.white },
+  blue: { name: "Blue", solid: brand.blue, hover: brand.blueDeep, fg: "#FFFFFF" },
+  teal: { name: "Teal", solid: brand.teal, hover: "#1F6167", fg: "#FFFFFF" },
+  amber: { name: "Amber", solid: brand.amber, hover: "#9E6E00", fg: "#1B2430" },
+  red: { name: "Red", solid: brand.red, hover: "#9C352C", fg: "#FFFFFF" },
 } as const;
 
 export type AccentName = keyof typeof accents;
 
 export interface Skin {
   name: SkinName;
-  /** Page and chrome. */
   bg: string;
   surface: string;
+  surfaceSunken: string;
   fg: string;
   fgMuted: string;
   fgSubtle: string;
   border: string;
   borderStrong: string;
-  /** The timeline: lanes, grid and the audio drawn on them. */
+  /** Timeline lanes. */
   lane: string;
   laneAlt: string;
   laneLine: string;
-  laneLabel: string;
-  /** Waveform fill. Always the opposite weight to `lane` — see the note above. */
+  /** Waveform fill — always the opposite weight to `lane`. Not negotiable. */
   wave: string;
   waveMuted: string;
-  /** Bar lines are stronger than beat lines, or the grid reads as noise. */
   gridBar: string;
   gridBeat: string;
-  shadow: string;
+  /** Fader track, before the filled portion. */
+  slot: string;
 }
 
-const paper: Skin = {
-  name: "paper",
-  bg: brand.paper,
-  surface: brand.white,
+const light: Skin = {
+  name: "light",
+  bg: "#F2F3F5",
+  surface: "#FFFFFF",
+  surfaceSunken: "#F7F8FA",
   fg: brand.ink,
-  fgMuted: "rgba(28,17,10,.70)",
-  fgSubtle: "rgba(28,17,10,.40)",
-  border: "rgba(28,17,10,.15)",
-  borderStrong: brand.ink,
-  lane: brand.white,
-  laneAlt: "#F4F1EA",
-  laneLine: "rgba(28,17,10,.15)",
-  laneLabel: brand.ink,
-  wave: brand.ink,
-  waveMuted: "rgba(28,17,10,.28)",
-  gridBar: "rgba(28,17,10,.28)",
-  gridBeat: "rgba(28,17,10,.10)",
-  shadow: "0 1px 0 rgba(28,17,10,.15), 0 8px 24px -8px rgba(28,17,10,.15)",
+  fgMuted: "rgba(27,36,48,.62)",
+  fgSubtle: "rgba(27,36,48,.42)",
+  border: "rgba(27,36,48,.13)",
+  borderStrong: "rgba(27,36,48,.30)",
+  lane: "#FFFFFF",
+  laneAlt: "#F7F8FA",
+  laneLine: "rgba(27,36,48,.12)",
+  wave: "#2C3B4C",
+  waveMuted: "rgba(27,36,48,.22)",
+  gridBar: "rgba(27,36,48,.22)",
+  gridBeat: "rgba(27,36,48,.07)",
+  slot: "rgba(27,36,48,.12)",
 };
 
 const dark: Skin = {
   name: "dark",
-  // Derived from the brand ink rather than a neutral grey, so the dark skin
-  // still belongs to the same product instead of looking like a default.
-  bg: "#17100B",
-  surface: "#211812",
-  fg: "#F2EDE6",
-  fgMuted: "rgba(242,237,230,.68)",
-  fgSubtle: "rgba(242,237,230,.40)",
-  border: "rgba(242,237,230,.14)",
-  borderStrong: "rgba(242,237,230,.34)",
-  lane: "#1E1610",
-  laneAlt: "#241B14",
-  laneLine: "rgba(242,237,230,.12)",
-  laneLabel: "#F2EDE6",
-  wave: "#F2EDE6",
-  waveMuted: "rgba(242,237,230,.30)",
-  gridBar: "rgba(242,237,230,.26)",
-  gridBeat: "rgba(242,237,230,.09)",
-  shadow: "0 1px 0 rgba(0,0,0,.4), 0 8px 24px -8px rgba(0,0,0,.6)",
+  bg: "#12171D",
+  surface: "#1A212A",
+  surfaceSunken: "#161C23",
+  fg: "#E8EDF3",
+  fgMuted: "rgba(232,237,243,.66)",
+  fgSubtle: "rgba(232,237,243,.40)",
+  border: "rgba(232,237,243,.13)",
+  borderStrong: "rgba(232,237,243,.30)",
+  lane: "#161C23",
+  laneAlt: "#1A212A",
+  laneLine: "rgba(232,237,243,.11)",
+  wave: "#D8E2EC",
+  waveMuted: "rgba(216,226,236,.24)",
+  gridBar: "rgba(232,237,243,.22)",
+  gridBeat: "rgba(232,237,243,.07)",
+  slot: "rgba(232,237,243,.14)",
 };
 
-export const skins: Record<SkinName, Skin> = { paper, dark };
+export const skins: Record<SkinName, Skin> = { light, dark };
 
+/** Run Sheet's stack: system UI for chrome, mono where digits must not jitter. */
 export const font = {
-  stamp: '"Impact Label", "Special Elite", "Courier New", monospace',
-  display: '"Bebas Neue", "Oswald", "Impact", sans-serif',
-  body: '"Futura", "Futura PT", "Avenir Next", "Avenir", "Helvetica Neue", system-ui, sans-serif',
-  mono: '"JetBrains Mono", "IBM Plex Mono", ui-monospace, monospace',
+  body: 'ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif',
+  mono: 'ui-monospace, SFMono-Regular, Menlo, "JetBrains Mono", monospace',
 } as const;
 
-export const size = { xs: 12, sm: 14, base: 16, md: 18, lg: 22, xl: 28, xxl: 36 } as const;
-export const tracking = { stamp: "0.04em", display: "0.02em", caps: "0.12em" } as const;
-export const space = { 1: 4, 2: 8, 3: 12, 4: 16, 5: 24, 6: 32, 7: 48, 8: 64 } as const;
-export const radius = { none: 0, sm: 2, md: 4, pill: 999 } as const;
-export const motion = {
-  snap: "cubic-bezier(.2,.9,.1,1)",
-  out: "cubic-bezier(0,0,.2,1)",
-  fast: "120ms",
-  base: "200ms",
-} as const;
+export const size = { xs: 11, sm: 12, base: 13, md: 15, lg: 19, xl: 24 } as const;
+export const space = { 1: 4, 2: 8, 3: 12, 4: 16, 5: 24, 6: 32 } as const;
+export const radius = { sm: 4, md: 6, lg: 8, pill: 999 } as const;
 
 /**
- * Lane colours by stem role, not by position.
+ * Lane stripe colours by stem role, not by position.
  *
  * Position-based colours change meaning whenever a stem is added, so a session
  * looks different every time it's opened. Role-based ones stay put: drums are
- * always red, vocals always yellow.
- *
- * These tint the lane header only, never the waveform — a red waveform on a
- * paper lane and a red one on a dark lane can't both be legible, and the
- * waveform's contrast is not negotiable.
+ * always red, vocals always amber. These tint the lane header only — never the
+ * waveform, whose contrast is set by the skin and left alone.
  */
 const roleColors: ReadonlyArray<readonly [RegExp, string]> = [
-  [/drum|dr\b|kick|snare|perc/i, brand.red],
-  [/bass|bs\b|808/i, "#7A4E2D"],
-  [/vox|voc|vcl|lead|sing/i, brand.yellow],
-  [/gtr|guit|aco|acou|elec/i, brand.yellow700],
-  [/key|pian|rhod|wurl|organ|synth|pad/i, brand.blue500],
+  [/drum|kick|snare|perc|\bdr\b/i, brand.red],
+  [/bass|\bbs\b|808/i, "#7A5230"],
+  [/vox|voc|vcl|sing|lead/i, brand.amber],
+  [/gtr|guit|aco|acou|elec/i, "#8A6B2F"],
+  [/key|pian|rhod|wurl|organ|synth|pad/i, brand.teal],
   [/mix|master|full|ref/i, brand.blue],
 ];
 
 export function laneColorFor(name: string): string {
-  for (const [pattern, color] of roleColors) {
-    if (pattern.test(name)) return color;
-  }
+  for (const [pattern, color] of roleColors) if (pattern.test(name)) return color;
   return "#6B7B8C";
 }
 
-/** What the user has chosen. Small enough to keep in one place. */
 export interface Look {
   skin: SkinName;
   accent: AccentName;
-  /** Lane height in pixels. Bounded — see LANE_HEIGHT. */
   laneHeight: number;
 }
 
 /**
  * Lane height limits.
  *
- * Below about 40px a stereo waveform is a smear and the lane name stops
- * fitting; above ~160px a four-stem song no longer fits on a laptop screen
- * and the transport scrolls away. Both ends are legibility, not taste.
+ * Below the floor a stereo waveform is a smear and the name stops fitting;
+ * above the ceiling a four-stem song no longer fits on a laptop screen and the
+ * transport scrolls out of reach. Both ends are legibility, not taste.
  */
 export const LANE_HEIGHT = { min: 44, max: 160, default: 84 } as const;
 
-export const DEFAULT_LOOK: Look = {
-  skin: "dark",
-  accent: "yellow",
-  laneHeight: LANE_HEIGHT.default,
-};
+export const DEFAULT_LOOK: Look = { skin: "light", accent: "blue", laneHeight: LANE_HEIGHT.default };
 
 /** Clamps anything read back from storage, so a stale value can't break the UI. */
 export function sanitizeLook(raw: unknown): Look {
   const l = (raw ?? {}) as Partial<Look>;
-  const skin: SkinName = l.skin === "paper" || l.skin === "dark" ? l.skin : DEFAULT_LOOK.skin;
+  const skin: SkinName = l.skin === "light" || l.skin === "dark" ? l.skin : DEFAULT_LOOK.skin;
   const accent: AccentName =
-    l.accent && Object.prototype.hasOwnProperty.call(accents, l.accent)
-      ? l.accent
-      : DEFAULT_LOOK.accent;
-  const height = Number(l.laneHeight);
+    l.accent && Object.prototype.hasOwnProperty.call(accents, l.accent) ? l.accent : DEFAULT_LOOK.accent;
+  const h = Number(l.laneHeight);
   return {
     skin,
     accent,
-    laneHeight: Number.isFinite(height)
-      ? Math.min(LANE_HEIGHT.max, Math.max(LANE_HEIGHT.min, Math.round(height)))
+    laneHeight: Number.isFinite(h)
+      ? Math.min(LANE_HEIGHT.max, Math.max(LANE_HEIGHT.min, Math.round(h)))
       : LANE_HEIGHT.default,
   };
 }
