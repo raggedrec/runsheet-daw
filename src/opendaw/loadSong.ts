@@ -22,6 +22,7 @@ import {
 import { InstrumentFactories, type Sample } from "@opendaw/studio-adapters";
 import { UUID } from "@opendaw/lib-std";
 import type { AudioData, TransientProtocol } from "@opendaw/lib-dsp";
+import type { Peaks } from "@opendaw/lib-fusion";
 import { signedUrl, type Song, type SongFile } from "../runsheet";
 
 /**
@@ -37,6 +38,15 @@ export interface LoadedLane {
   name: string;
   fileId: string;
   seconds: number;
+  /**
+   * openDAW's multi-resolution waveform overview.
+   *
+   * Computed during import and kept rather than discarded: drawing from peaks
+   * is what makes a four-minute stem render in a frame instead of walking
+   * millions of samples. Peaks.nearest(unitsPerPixel) picks the right level of
+   * detail for the current zoom.
+   */
+  peaks: Peaks;
 }
 
 export interface LoadProgress {
@@ -50,6 +60,7 @@ interface Prepared {
   file: SongFile;
   sample: Sample;
   audio: AudioData;
+  peaks: Peaks;
   uuid: UUID.Bytes;
 }
 
@@ -94,8 +105,8 @@ export async function loadSongIntoProject(
     });
 
     const uuid = UUID.parse(sample.uuid);
-    const [audio] = await SampleStorage.get().load(uuid);
-    prepared.push({ file, sample, audio, uuid });
+    const [audio, peaks] = await SampleStorage.get().load(uuid);
+    prepared.push({ file, sample, audio, peaks, uuid });
   }
 
   // The AudioFileBox has to be created inside the transaction, but building
@@ -141,6 +152,7 @@ export async function loadSongIntoProject(
         name: laneName(p.file.name),
         fileId: p.file.id,
         seconds: p.sample.duration,
+        peaks: p.peaks,
       });
     });
   });

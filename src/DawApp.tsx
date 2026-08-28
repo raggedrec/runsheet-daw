@@ -14,6 +14,10 @@ import { loadSong, playableFiles, LoadError, type Song } from "./runsheet";
 import { isConfigured, requestedSong, supabase } from "./supabase";
 import { useAnimationValue, useObservable } from "./useObservable";
 import { S } from "./styles";
+import { Timeline } from "./Timeline";
+import { Transport } from "./Transport";
+import { useLook } from "./useLook";
+import { accents, skins } from "./theme";
 
 type Stage =
   | { name: "booting" }
@@ -21,6 +25,9 @@ type Stage =
   | { name: "ready" }
   | { name: "loading"; progress: LoadProgress | null }
   | { name: "loaded" };
+
+/** Stable identity, so passing "nothing is muted" doesn't repaint every frame. */
+const NO_LANES: ReadonlySet<string> = new Set<string>();
 
 export default function DawApp() {
   const [stage, setStage] = useState<Stage>({ name: "booting" });
@@ -30,6 +37,20 @@ export default function DawApp() {
   const [lanes, setLanes] = useState<LoadedLane[]>([]);
   const [signedIn, setSignedIn] = useState<boolean | null>(null);
   const params = useMemo(() => requestedSong(), []);
+  const [look, setLook] = useLook();
+  const skin = skins[look.skin];
+  const accent = accents[look.accent];
+
+  /*
+   * The page background follows the skin. Set on <body> rather than a wrapper
+   * because the timeline can be taller than the viewport, and a wrapper would
+   * leave the page's own background showing past the end of it.
+   */
+  useEffect(() => {
+    document.body.style.background = skin.bg;
+    document.body.style.color = skin.fg;
+    document.body.style.margin = "0";
+  }, [skin]);
 
   // --- boot the engine, then fetch the song's details ----------------------
   useEffect(() => {
@@ -121,6 +142,15 @@ export default function DawApp() {
     }
   }, [bootResult, song, files]);
 
+  /*
+   * The song is as long as its longest stem. Taking the first lane's length
+   * would cut the timeline short whenever a stem starts late or runs on.
+   */
+  const duration = useMemo(
+    () => lanes.reduce((max, l) => Math.max(max, l.seconds), 0),
+    [lanes],
+  );
+
   const engine = session?.project.engine ?? null;
   const isPlaying = useObservable(engine?.isPlaying ?? null, false);
   const seconds = useAnimationValue(
@@ -133,7 +163,7 @@ export default function DawApp() {
   );
 
   return (
-    <main style={S.page}>
+    <main style={{ ...S.page, color: skin.fg, maxWidth: 1180 }}>
       <header style={S.header}>
         <div>
           <h1 style={S.h1}>{song?.name ?? "Run Sheet — DAW"}</h1>
@@ -203,32 +233,40 @@ export default function DawApp() {
 
       {stage.name === "loaded" && session && (
         <>
-          <section style={S.transport}>
-            <button
-              style={S.button}
-              onClick={() => (isPlaying ? session.project.engine.stop() : session.project.engine.play())}
-            >
-              {isPlaying ? "Stop" : "Play"}
-            </button>
-            <button
-              style={S.buttonQuiet}
-              onClick={() => session.project.engine.setPosition(0)}
-            >
-              Back to start
-            </button>
-            <span style={S.clock}>{formatTime(seconds)}</span>
-            {song?.bpm && tempoOf(song.bpm) && <span style={S.noteFaint}>{tempoOf(song.bpm)} BPM</span>}
-          </section>
+          <Transport
+            skin={skin}
+            accent={accent.solid}
+            accentFg={accent.fg}
+            isPlaying={isPlaying}
+            position={seconds}
+            duration={duration}
+            bpm={song?.bpm ? tempoOf(song.bpm) : null}
+            look={look}
+            onLook={setLook}
+            onPlayStop={() =>
+              isPlaying ? session.project.engine.stop() : session.project.engine.play()
+            }
+            onRewind={() => session.project.engine.setPosition(0)}
+          />
 
-          <section style={S.panel}>
-            <h2 style={S.h2}>Lanes</h2>
-            {lanes.map((lane) => (
-              <div key={lane.fileId} style={S.lane}>
-                <span style={S.laneName}>{lane.name}</span>
-                <span style={S.noteFaint}>{formatTime(lane.seconds)}</span>
-              </div>
-            ))}
-          </section>
+          <Timeline
+            lanes={lanes}
+            skin={skin}
+            accent={accent.solid}
+            laneHeight={look.laneHeight}
+            position={seconds}
+            duration={duration}
+            bpm={song?.bpm ? tempoOf(song.bpm) : null}
+            muted={NO_LANES}
+            soloed={NO_LANES}
+            onScrub={(s) =>
+              // The engine positions in musical time, so a scrub in seconds has
+              // to go back through the tempo map rather than being scaled.
+              session.project.engine.setPosition(
+                session.project.tempoMap.secondsToPPQN(s),
+              )
+            }
+          />
         </>
       )}
 
