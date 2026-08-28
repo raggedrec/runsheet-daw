@@ -14,3 +14,6 @@ dist/
 
 # Copied from node_modules by scripts/sync-wasm.mjs — never committed
 public/opendaw-wasm/
+
+# tsc -b build artifact
+*.tsbuildinfo
