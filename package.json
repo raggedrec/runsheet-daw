@@ -12,7 +12,9 @@
     "build": "tsc -b && vite build",
     "preview": "vite preview",
     "lint": "oxlint src/",
-    "sync:wasm": "node scripts/sync-wasm.mjs"
+    "sync:wasm": "node scripts/sync-wasm.mjs",
+    "audit:ship": "npm audit --omit=dev --audit-level=high",
+    "audit:all": "npm audit"
   },
   "dependencies": {
     "@opendaw/studio-core": "^0.2.4",

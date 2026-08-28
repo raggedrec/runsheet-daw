@@ -62,3 +62,45 @@ it bypasses RLS entirely.
 ## Licence
 
 GNU AGPL v3 or later. See `NOTICE`, and `LICENSE` once added.
+
+## Keeping `npm audit` meaningful
+
+openDAW pulls in a large transitive tree — 105 packages before this app has a
+user interface. Some of it is server-side code that a browser never runs:
+`@opendaw/studio-core` depends on `y-websocket`, which depends on `y-leveldb`,
+which depends on `leveldown`, a native LevelDB binding for Node.
+
+None of that reaches the browser. Checked against a production build:
+`leveldown`, `y-leveldb`, `y-websocket` and `abstract-leveldown` appear zero
+times in the bundle. Vite tree-shakes them; only Yjs's in-memory document is
+actually used. A vulnerability in any of them is a vulnerability in code your
+users never download.
+
+So there are two different questions, and one script each:
+
+```bash
+npm run audit:ship    # what actually ships — this one matters
+npm run audit:all     # everything, including build tooling
+```
+
+`audit:ship` passes `--omit=dev`, which drops Vite, TypeScript, oxlint and
+their trees. What's left is what a browser executes. Fix those.
+
+For `audit:all`, judgement applies. A denial-of-service in a bundler that runs
+on your own machine against your own source is not the same as one in a library
+handling untrusted input in production.
+
+**Don't approve install scripts you don't need.** npm will offer to run
+`leveldown`'s `node-gyp-build`. It compiles a native binding for a Node
+database this app never loads. Declining costs nothing.
+
+**When a real finding does appear** in a transitive dependency and the
+maintainer hasn't released a fix, `overrides` in `package.json` forces a
+patched version:
+
+```json
+"overrides": { "some-package": "^1.2.3" }
+```
+
+Use it deliberately and leave a comment saying why — an override that outlives
+its reason silently pins you to an old version.
