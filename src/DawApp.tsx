@@ -19,6 +19,7 @@ import { Transport } from "./Transport";
 import { useLook } from "./useLook";
 import { accents, skins } from "./theme";
 import { RecordPanel } from "./RecordPanel";
+import { StartScreen } from "./StartScreen";
 import { useTransportClock } from "./useTransportClock";
 import {
   addRecordTrack, armTrack, listInputs, RecordingError,
@@ -327,26 +328,14 @@ export default function DawApp() {
       )}
 
       {stage.name === "ready" && song && (
-        <section style={S.panel}>
-          {files.length === 0 ? (
-            <>
-              <p style={S.badTitle}>Nothing to play.</p>
-              <p style={S.note}>
-                This song has no stems or mixes in Idea Drop yet — only links, MIDI or notes.
-              </p>
-            </>
-          ) : (
-            <>
-              <p style={S.note}>
-                {files.length} {files.length === 1 ? "file" : "files"} ready:{" "}
-                {files.map((f) => f.name).join(", ")}
-              </p>
-              <button style={S.button} onClick={() => void open()}>
-                Open in the DAW
-              </button>
-            </>
-          )}
-        </section>
+        <StartScreen
+          skin={skin}
+          accent={accent.solid}
+          accentFg={accent.fg}
+          song={song}
+          files={files}
+          onOpen={() => void open()}
+        />
       )}
 
       {stage.name === "loading" && (
