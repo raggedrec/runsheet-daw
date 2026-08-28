@@ -106,9 +106,50 @@ export async function createSession(boot: BootResult): Promise<DawSession> {
    * destination, so an unconnected engine never runs at all. Not "runs
    * silently" — the transport doesn't move, position stays at 0 and isPlaying
    * never becomes true, which looks exactly like a dead Play button.
+   *
+   * Connecting once is not enough. openDAW REPLACES the worklet when the graph
+   * changes shape — starting a recording is the case that matters here, since
+   * the engine has to be rebuilt with the capture inputs attached. The old
+   * node, and our connection to it, is thrown away. Connect only at startup
+   * and the result is: audio dies the instant you press Record, and nothing is
+   * captured either, because the replacement engine is never pulled.
+   *
+   * `RestartWorklet` is the hook for exactly this — `load` is handed each new
+   * worklet, `unload` retires the old one. Connecting there means every engine
+   * openDAW builds reaches the speakers, not just the first.
    */
-  const worklet = project.startAudioWorklet();
-  worklet.connect(audioContext.destination);
+  const connected = new Set<AudioWorkletNode>();
+  const connect = (node: AudioWorkletNode) => {
+    if (connected.has(node)) return;
+    node.connect(audioContext.destination);
+    connected.add(node);
+  };
+  const disconnect = (node: AudioWorkletNode) => {
+    if (!connected.delete(node)) return;
+    try {
+      node.disconnect();
+    } catch {
+      // Already gone. Nothing to do, and throwing here would take down a
+      // recording that otherwise succeeded.
+    }
+  };
+
+  let live: AudioWorkletNode | null = null;
+  const worklet = project.startAudioWorklet({
+    unload: async () => {
+      if (live) disconnect(live);
+      live = null;
+    },
+    load: (next) => {
+      connect(next);
+      live = next;
+    },
+  });
+  // The first worklet comes back as a return value rather than through `load`,
+  // so it's connected here. The Set makes a double-connect impossible if that
+  // ever changes — two connections would sum the engine with itself, +6dB.
+  connect(worklet);
+  live ??= worklet;
 
   // engine — the EngineFacade with play/stop/record — is only usable once the
   // worklet has reported ready.

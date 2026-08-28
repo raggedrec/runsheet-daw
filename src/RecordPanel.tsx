@@ -9,6 +9,7 @@
  * it's the one control here that changes the world rather than the view.
  */
 import { useCallback, useState } from "react";
+import { useInputMeter } from "./useInputMeter";
 import { font, radius, size, space, type Skin } from "./theme";
 import type { InputDevice } from "./opendaw/recording";
 
@@ -36,6 +37,9 @@ export function RecordPanel({
   countIn, busy, error, onAddTrack, onChooseDevice, onCountIn, onRecord, onStop,
 }: RecordPanelProps) {
   const [name, setName] = useState("");
+  // Runs whenever a device is chosen — the point is to see signal BEFORE
+  // committing to a take, not to discover afterwards that nothing arrived.
+  const meter = useInputMeter(deviceId, devices.length > 0);
 
   const add = useCallback(() => {
     const trimmed = name.trim();
@@ -111,20 +115,23 @@ export function RecordPanel({
           <label style={label} htmlFor="take-input">
             Input
           </label>
-          <select
-            id="take-input"
-            value={deviceId ?? ""}
-            onChange={(e) => onChooseDevice(e.target.value)}
-            disabled={devices.length === 0 || isRecording}
-            style={{ ...field, minWidth: 190 }}
-          >
-            {devices.length === 0 && <option value="">Allow the microphone…</option>}
-            {devices.map((d) => (
-              <option key={d.deviceId} value={d.deviceId}>
-                {d.label}
-              </option>
-            ))}
-          </select>
+          <div style={{ display: "flex", alignItems: "center", gap: space[2] }}>
+            <select
+              id="take-input"
+              value={deviceId ?? ""}
+              onChange={(e) => onChooseDevice(e.target.value)}
+              disabled={devices.length === 0 || isRecording}
+              style={{ ...field, minWidth: 190 }}
+            >
+              {devices.length === 0 && <option value="">Allow the microphone…</option>}
+              {devices.map((d) => (
+                <option key={d.deviceId} value={d.deviceId}>
+                  {d.label}
+                </option>
+              ))}
+            </select>
+            <Meter skin={skin} level={meter.level} sawSignal={meter.sawSignal} error={meter.error} />
+          </div>
         </div>
 
         <label
@@ -187,5 +194,71 @@ export function RecordPanel({
 
       <style>{`@keyframes rec-blink { to { opacity: .25 } }`}</style>
     </section>
+  );
+}
+
+/**
+ * A peak meter for the chosen input.
+ *
+ * Vertical-ish bar rather than a number: a level is something you watch move,
+ * and a figure updating sixty times a second is unreadable. Turns red near the
+ * top because that's where you need to reach for the gain knob, and stays grey
+ * until signal has actually been seen — "no signal yet" and "silence right
+ * now" are different, and only the first is a problem worth flagging.
+ */
+function Meter({
+  skin, level, sawSignal, error,
+}: {
+  skin: Skin;
+  level: number;
+  sawSignal: boolean;
+  error: string | null;
+}) {
+  if (error) {
+    return (
+      <span style={{ font: `500 ${size.xs}px ${font.body}`, color: "#C0453B", width: 96 }}>
+        {error}
+      </span>
+    );
+  }
+
+  // Peak in dB, mapped onto the bar. Linear amplitude spends almost all its
+  // range in the top few dB, which makes a linear meter useless for anything
+  // quiet — a vocal at a sane level would barely leave the left edge.
+  const db = level > 0 ? 20 * Math.log10(level) : -Infinity;
+  const filled = Number.isFinite(db) ? Math.max(0, Math.min(1, (db + 60) / 60)) : 0;
+  const hot = db > -3;
+
+  return (
+    <span
+      title={sawSignal ? "Input level" : "No signal seen yet"}
+      style={{ display: "flex", alignItems: "center", gap: 6, width: 108, flex: "0 0 auto" }}
+    >
+      <span
+        style={{
+          position: "relative", height: 8, flex: 1,
+          background: skin.slot, borderRadius: 999, overflow: "hidden",
+        }}
+      >
+        <span
+          style={{
+            position: "absolute", inset: 0,
+            transformOrigin: "left center",
+            transform: `scaleX(${filled})`,
+            background: hot ? "#C0453B" : "#3B9E5A",
+            // No transition: a meter that eases is lying about when the peak
+            // happened.
+          }}
+        />
+      </span>
+      <span
+        style={{
+          font: `500 ${size.xs}px ${font.mono}`, color: skin.fgSubtle,
+          width: 30, textAlign: "right", fontVariantNumeric: "tabular-nums",
+        }}
+      >
+        {Number.isFinite(db) && sawSignal ? Math.round(db) : "--"}
+      </span>
+    </span>
   );
 }
