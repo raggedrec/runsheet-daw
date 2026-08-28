@@ -20,8 +20,15 @@ Built on the openDAW SDK (https://opendaw.org), Copyright (C) 2025
 André Michelle. openDAW is dual-licensed; this application is
 distributed under the AGPL option.
 
-NOTE: the LICENSE file is not yet present. Add the canonical text from
-https://www.gnu.org/licenses/agpl-3.0.txt before this repository is made
-public. Section 13 also requires the running application to offer its
-source to anyone using it over a network — that link is in the footer of
-src/App.tsx and must point at the real public repository.
+The full licence text is in LICENSE at the repository root: the canonical
+AGPL-3.0, 661 lines, verified to contain section 13 (Remote Network
+Interaction).
+
+STILL OUTSTANDING before this app is reachable over a network — including
+a Vercel preview URL, which counts:
+
+  The source link in the footer of src/App.tsx points at
+  github.com/raggedrec/runsheet-daw, which does not exist yet. Section 13
+  is discharged by the running application offering its source, not by
+  this file or by LICENSE. A link that 404s claims a compliance it isn't
+  delivering, which is worse than no link at all.
