@@ -12,10 +12,29 @@ Sheet's origin.
 ## Running it
 
 ```bash
-cp .env.example .env      # fill in the Supabase URL and anon key
 npm install
+cp .env.example .env
 npm run dev
 ```
+
+Then fill in `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` in `.env`.
+Leave `VITE_SESSION_COOKIE_DOMAIN` blank for local development — a cookie
+scoped to a parent domain can't be shared from localhost anyway, so the client
+falls back to localStorage.
+
+### If `npm run dev` fails with "Cannot find native binding"
+
+Vite 8 uses rolldown, which is a compiled binary and platform-specific. If
+`node_modules` was populated on a different operating system — a container, a
+CI runner, or a shared drive written to by another machine — the binding for
+*this* machine won't be there.
+
+```bash
+rm -rf node_modules package-lock.json
+npm install
+```
+
+Install on the machine you intend to run on.
 
 The dev server sets `Cross-Origin-Opener-Policy` and
 `Cross-Origin-Embedder-Policy` itself — without them the engine cannot start.
