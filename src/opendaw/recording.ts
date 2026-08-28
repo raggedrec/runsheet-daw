@@ -129,16 +129,30 @@ export function addRecordTrack(project: Project, name: string): RecordTrack {
  * a mistake rather than an intention.
  */
 export function armTrack(project: Project, capture: Capture, deviceId: string | null): void {
-  if (deviceId !== null && capture instanceof CaptureAudio) {
-    capture.deviceId.setValue(Option.wrap(deviceId));
-  }
-  project.captureDevices.setArm(capture, true);
+  /*
+   * Inside a transaction, because both of these write to boxes.
+   *
+   * `deviceId` and `armed` are fields on the capture's box, and openDAW
+   * refuses writes outside editing.modify() — the graph is transactional so
+   * that undo, and the subscribers that rebuild the audio worklet, see whole
+   * changes rather than half of one. Setting them directly throws
+   * "Modification only prohibited in transaction mode".
+   */
+  project.editing.modify(() => {
+    if (deviceId !== null && capture instanceof CaptureAudio) {
+      capture.deviceId.setValue(Option.wrap(deviceId));
+    }
+    project.captureDevices.setArm(capture, true);
+  });
 }
 
 export function disarmAll(project: Project): void {
-  for (const capture of project.captureDevices.filterArmed()) {
-    capture.armed.setValue(false);
-  }
+  const armed = project.captureDevices.filterArmed();
+  if (armed.length === 0) return;
+  // One transaction for all of them — see armTrack.
+  project.editing.modify(() => {
+    for (const capture of armed) capture.armed.setValue(false);
+  });
 }
 
 /**
