@@ -27,6 +27,9 @@ import processorsUrl from "@opendaw/studio-core/processors.js?url";
 import wasmProcessorUrl from "@opendaw/studio-core-wasm/wasm-processor.js?url";
 import wasmOfflineWorkerUrl from "@opendaw/studio-core-wasm/wasm-offline-worker.js?url";
 
+/** Prefix only. The package appends "/wasm/engine.wasm" and "/wasm/plugins/*". */
+const WASM_BASE = `${import.meta.env.BASE_URL}opendaw-wasm`.replace(/\/$/, "");
+
 export interface BootResult {
   audioContext: AudioContext;
   audioWorklets: AudioWorklets;
@@ -94,19 +97,27 @@ async function bootOnce(): Promise<BootResult> {
   AudioWorklets.install(processorsUrl);
 
   /*
-   * wasmUrl is a directory, not a file: the engine fetches engine.wasm and
-   * plugins/*.wasm beneath it at runtime.
+   * wasmUrl is a PREFIX, and it must not already end in /wasm.
    *
-   * That means the bundler never sees them, so they have to be served as
-   * static files. scripts/sync-wasm.mjs copies them from the package into
-   * public/opendaw-wasm before every dev run and build — deriving the URL from
-   * the processor's bundled path instead gives a directory that doesn't exist
-   * in dist, and the app then builds cleanly and 404s at boot.
+   * loadEngineModules builds `${base}/wasm/engine.wasm` and, for each of the
+   * 29 devices, `${base}/wasm/plugins/device_*.wasm` — those paths are
+   * hardcoded in the package. Passing ".../opendaw-wasm/wasm" produced
+   * ".../opendaw-wasm/wasm/wasm/engine.wasm".
+   *
+   * The failure was thoroughly misleading. Vite's dev server answers a missing
+   * file with index.html at status 200, so the library's own `response.ok`
+   * check passed and it handed HTML to WebAssembly.compile, which reported
+   * "expected magic word 00 61 73 6d, found 3c 21 64 6f" — the bytes of
+   * "<!do". A 404 would have said which file was missing.
+   *
+   * The binaries are copied to public/opendaw-wasm/wasm by scripts/sync-wasm.mjs
+   * before every dev run and build; the bundler never sees them because they're
+   * fetched at runtime, not imported.
    */
   WasmEngine.install({
     processorUrl: wasmProcessorUrl,
     offlineWorkerUrl: wasmOfflineWorkerUrl,
-    wasmUrl: `${import.meta.env.BASE_URL}opendaw-wasm/wasm`,
+    wasmUrl: WASM_BASE,
   });
 
   const audioContext = new AudioContext();
@@ -154,12 +165,23 @@ export interface AudioStart {
 export async function startAudio(result: BootResult): Promise<AudioStart> {
   await result.audioContext.resume();
 
-  const wasmUrl = `${import.meta.env.BASE_URL}opendaw-wasm/wasm/engine.wasm`;
+  /*
+   * Probe exactly what loadEngineModules will request, not something that
+   * merely looks similar. The first version of this checked a path that
+   * existed while the engine was asking for a different one, so it reported a
+   * healthy 200 for a file the engine never fetched.
+   *
+   * Checks content-type too: under Vite's dev server a wrong path returns 200
+   * with text/html, and that is the actual failure mode here.
+   */
+  const probeUrl = `${WASM_BASE}/wasm/engine.wasm`;
   let wasmFetch: string;
   try {
-    const res = await fetch(wasmUrl, { method: "HEAD" });
-    const size = res.headers.get("content-length");
-    wasmFetch = `${res.status} ${res.ok ? `(${Number(size ?? 0).toLocaleString()} bytes)` : "NOT FOUND"}`;
+    const res = await fetch(probeUrl);
+    const type = res.headers.get("content-type") ?? "?";
+    const bytes = (await res.arrayBuffer()).byteLength;
+    const magic = type.includes("html") ? " — HTML, not a binary: wrong path" : "";
+    wasmFetch = `${res.status} ${type} ${bytes.toLocaleString()} bytes${magic}`;
   } catch (err) {
     wasmFetch = `unreachable — ${err instanceof Error ? err.message : "?"}`;
   }
