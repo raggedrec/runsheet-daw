@@ -37,8 +37,6 @@ export interface DawSession {
   project: Project;
   audioContext: AudioContext;
   sampleService: SampleService;
-  /** The engine node itself. Held so it can be disconnected on teardown. */
-  worklet: AudioWorkletNode;
 }
 
 /**
@@ -97,63 +95,23 @@ export async function createSession(boot: BootResult): Promise<DawSession> {
   });
 
   /*
-   * startAudioWorklet builds the EngineWorklet and returns it. It does NOT
-   * connect it — the name misleads, and discarding the return value is a
-   * silent failure.
+   * openDAW connects the worklet to the destination itself — the last lines of
+   * Project.startAudioWorklet do `worklet.connect(worklet.context.destination)`.
    *
-   * EngineWorklet extends AudioWorkletNode: it *is* the engine, as a node in
-   * the graph. Web Audio only calls process() on nodes that reach a
-   * destination, so an unconnected engine never runs at all. Not "runs
-   * silently" — the transport doesn't move, position stays at 0 and isPlaying
-   * never becomes true, which looks exactly like a dead Play button.
+   * An earlier version of this file connected it again, on the theory that a
+   * dead Play button meant an unconnected engine. That was wrong twice over:
+   * the node was already connected, and connecting a second time sums the
+   * engine with itself, +6 dB. Removed.
    *
-   * Connecting once is not enough. openDAW REPLACES the worklet when the graph
-   * changes shape — starting a recording is the case that matters here, since
-   * the engine has to be rebuilt with the capture inputs attached. The old
-   * node, and our connection to it, is thrown away. Connect only at startup
-   * and the result is: audio dies the instant you press Record, and nothing is
-   * captured either, because the replacement engine is never pulled.
-   *
-   * `RestartWorklet` is the hook for exactly this — `load` is handed each new
-   * worklet, `unload` retires the old one. Connecting there means every engine
-   * openDAW builds reaches the speakers, not just the first.
+   * The `restart` parameter is not a graph-change hook either. Reading the
+   * source: it is only invoked from the worklet's `error` and `processorerror`
+   * listeners — crash recovery, not a rebuild on record.
    */
-  const connected = new Set<AudioWorkletNode>();
-  const connect = (node: AudioWorkletNode) => {
-    if (connected.has(node)) return;
-    node.connect(audioContext.destination);
-    connected.add(node);
-  };
-  const disconnect = (node: AudioWorkletNode) => {
-    if (!connected.delete(node)) return;
-    try {
-      node.disconnect();
-    } catch {
-      // Already gone. Nothing to do, and throwing here would take down a
-      // recording that otherwise succeeded.
-    }
-  };
-
-  let live: AudioWorkletNode | null = null;
-  const worklet = project.startAudioWorklet({
-    unload: async () => {
-      if (live) disconnect(live);
-      live = null;
-    },
-    load: (next) => {
-      connect(next);
-      live = next;
-    },
-  });
-  // The first worklet comes back as a return value rather than through `load`,
-  // so it's connected here. The Set makes a double-connect impossible if that
-  // ever changes — two connections would sum the engine with itself, +6dB.
-  connect(worklet);
-  live ??= worklet;
+  project.startAudioWorklet();
 
   // engine — the EngineFacade with play/stop/record — is only usable once the
   // worklet has reported ready.
   await project.engine.isReady();
 
-  return { project, audioContext, sampleService, worklet };
+  return { project, audioContext, sampleService };
 }

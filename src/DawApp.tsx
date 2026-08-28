@@ -283,7 +283,7 @@ export default function DawApp() {
       session.project.engine.setPosition(
         session.project.tempoMap.secondsToPPQN(clock.seconds),
       );
-      await beginRecording(session.project, countIn);
+      beginRecording(session.project, countIn);
       clock.start(clock.seconds);
       setRolling(true);
       setIsRecording(true);
@@ -300,7 +300,10 @@ export default function DawApp() {
 
   const stopRecord = useCallback(async () => {
     if (!session || !recordTrack || !song) return;
-    endRecording(session.project);
+    // Waits for openDAW to finalise the take. It does that asynchronously,
+    // from a subscriber on isRecording — reading the regions before that has
+    // happened is what produced "Nothing was recorded" on good takes.
+    await endRecording(session.project, recordTrack.capture);
     session.project.engine.stop();
     clock.stop(clock.seconds);
     setRolling(false);

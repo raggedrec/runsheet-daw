@@ -162,7 +162,7 @@ export function disarmAll(project: Project): void {
  * the transport before the stream is live and the take begins with a hole
  * exactly as long as the device took to open.
  */
-export async function startRecording(project: Project, countIn: boolean): Promise<void> {
+export function startRecording(project: Project, countIn: boolean): void {
   const armed = project.captureDevices.filterArmed();
   if (armed.length === 0) {
     throw new RecordingError(
@@ -170,10 +170,39 @@ export async function startRecording(project: Project, countIn: boolean): Promis
       "Add a track, choose an input and arm it before recording.",
     );
   }
-  await Promise.all(armed.map((capture) => capture.prepareRecording()));
+  /*
+   * No prepareRecording() here. Recording.start does it itself — it awaits
+   * every armed capture's prepareRecording, then clears their recorded regions,
+   * then calls startRecording on each. Doing it first as well meant preparing
+   * twice, and CaptureAudio nulls its prepared worklet once used.
+   */
   project.startRecording(countIn);
 }
 
-export function stopRecording(project: Project): void {
+/**
+ * Stops, and waits until the take actually exists.
+ *
+ * This is the bit that was producing "Nothing was recorded" on perfectly good
+ * takes. `stopRecording()` only asks the engine to stop. openDAW finalises the
+ * recording later, from a subscriber on `isRecording`/`isCountingIn`, inside
+ * its own `editing.modify()` — and only then do the regions appear. Reading
+ * `recordedRegions()` on the line after stop asks before any of that has
+ * happened, every time.
+ *
+ * Polling rather than subscribing because the finalise runs in another
+ * subscriber to the same observable, and subscriber order isn't ours to
+ * control — waiting for the flag would still be a race. The regions appearing
+ * is the thing we actually care about, so that's what's waited for.
+ */
+export async function stopRecording(project: Project, capture: Capture): Promise<void> {
   project.stopRecording();
+
+  const deadline = Date.now() + 5000;
+  while (Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 60));
+    if (project.isRecording()) continue;
+    if (capture.recordedRegions().length > 0) return;
+  }
+  // Falls through on a genuinely empty take. The caller reports that; five
+  // seconds is long enough that a slow finalise isn't mistaken for silence.
 }
