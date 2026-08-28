@@ -12,12 +12,19 @@ import { createSession, type DawSession } from "./opendaw/session";
 import { loadSongIntoProject, tempoOf, type LoadedLane, type LoadProgress } from "./opendaw/loadSong";
 import { loadSong, playableFiles, LoadError, type Song } from "./runsheet";
 import { isConfigured, requestedSong, supabase } from "./supabase";
-import { useAnimationValue, useObservable } from "./useObservable";
+import { useObservable } from "./useObservable";
 import { S } from "./styles";
 import { Timeline } from "./Timeline";
 import { Transport } from "./Transport";
 import { useLook } from "./useLook";
 import { accents, skins } from "./theme";
+import { RecordPanel } from "./RecordPanel";
+import { useTransportClock } from "./useTransportClock";
+import {
+  addRecordTrack, armTrack, listInputs, RecordingError,
+  startRecording as beginRecording, stopRecording as endRecording,
+  type InputDevice, type RecordTrack,
+} from "./opendaw/recording";
 
 type Stage =
   | { name: "booting" }
@@ -38,6 +45,15 @@ export default function DawApp() {
   const [signedIn, setSignedIn] = useState<boolean | null>(null);
   const params = useMemo(() => requestedSong(), []);
   const [look, setLook] = useLook();
+
+  // --- recording ----------------------------------------------------------
+  const [devices, setDevices] = useState<InputDevice[]>([]);
+  const [deviceId, setDeviceId] = useState<string | null>(null);
+  const [recordTrack, setRecordTrack] = useState<RecordTrack | null>(null);
+  const [isRecording, setIsRecording] = useState(false);
+  const [countIn, setCountIn] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [recError, setRecError] = useState<{ message: string; remedy: string } | null>(null);
   const skin = skins[look.skin];
   const accent = accents[look.accent];
 
@@ -152,15 +168,116 @@ export default function DawApp() {
   );
 
   const engine = session?.project.engine ?? null;
-  const isPlaying = useObservable(engine?.isPlaying ?? null, false);
-  const seconds = useAnimationValue(
-    () =>
-      session
-        ? session.project.tempoMap.intervalToSeconds(0, session.project.engine.position.getValue())
-        : 0,
-    Boolean(session),
-    0,
+
+  /*
+   * Two sources of truth about whether the transport is rolling, deliberately.
+   *
+   * `engine.isPlaying` is the engine's own answer and the one to trust — but
+   * the position it publishes alongside it does not advance in this build, so
+   * the clock can't be driven from it. `rolling` is what this app knows it
+   * asked for. The clock follows `rolling`; the button follows the engine when
+   * the engine is talking and falls back to `rolling` when it isn't.
+   */
+  const [rolling, setRolling] = useState(false);
+  const enginePlaying = useObservable(engine?.isPlaying ?? null, false);
+  const isPlaying = enginePlaying || rolling;
+  const clock = useTransportClock(session?.audioContext ?? null, rolling, duration);
+  const seconds = clock.seconds;
+
+  const playStop = useCallback(() => {
+    if (!session) return;
+    if (rolling) {
+      session.project.engine.stop();
+      clock.stop(clock.seconds);
+      setRolling(false);
+    } else {
+      session.project.engine.play();
+      clock.start(clock.seconds);
+      setRolling(true);
+    }
+  }, [session, rolling, clock]);
+
+  const rewind = useCallback(() => {
+    if (!session) return;
+    session.project.engine.setPosition(0);
+    clock.seek(0);
+  }, [session, clock]);
+
+  const scrub = useCallback(
+    (to: number) => {
+      if (!session) return;
+      // The engine positions in musical time, so a scrub in seconds goes back
+      // through the tempo map rather than being scaled.
+      session.project.engine.setPosition(session.project.tempoMap.secondsToPPQN(to));
+      clock.seek(to);
+    },
+    [session, clock],
   );
+
+  /** Add a track, ask for the microphone, arm it. One button, three steps. */
+  const addTrack = useCallback(
+    async (name: string) => {
+      if (!session) return;
+      setBusy(true);
+      setRecError(null);
+      try {
+        const available = devices.length > 0 ? devices : await listInputs();
+        setDevices(available);
+        const chosen = deviceId ?? available[0]?.deviceId ?? null;
+        setDeviceId(chosen);
+
+        const track = addRecordTrack(session.project, name);
+        armTrack(session.project, track.capture, chosen);
+        setRecordTrack(track);
+      } catch (err) {
+        setRecError(
+          err instanceof RecordingError
+            ? { message: err.message, remedy: err.remedy }
+            : { message: "The track couldn't be added.", remedy: String(err) },
+        );
+      } finally {
+        setBusy(false);
+      }
+    },
+    [session, devices, deviceId],
+  );
+
+  const chooseDevice = useCallback(
+    (id: string) => {
+      setDeviceId(id);
+      if (session && recordTrack) armTrack(session.project, recordTrack.capture, id);
+    },
+    [session, recordTrack],
+  );
+
+  const record = useCallback(async () => {
+    if (!session) return;
+    setBusy(true);
+    setRecError(null);
+    try {
+      await beginRecording(session.project, countIn);
+      clock.start(clock.seconds);
+      setRolling(true);
+      setIsRecording(true);
+    } catch (err) {
+      setRecError(
+        err instanceof RecordingError
+          ? { message: err.message, remedy: err.remedy }
+          : { message: "Recording didn't start.", remedy: String(err) },
+      );
+    } finally {
+      setBusy(false);
+    }
+  }, [session, countIn, clock]);
+
+  const stopRecord = useCallback(() => {
+    if (!session) return;
+    endRecording(session.project);
+    session.project.engine.stop();
+    clock.stop(clock.seconds);
+    setRolling(false);
+    setIsRecording(false);
+  }, [session, clock]);
 
   return (
     <main style={{ ...S.page, color: skin.fg, maxWidth: 1180 }}>
@@ -243,10 +360,26 @@ export default function DawApp() {
             bpm={song?.bpm ? tempoOf(song.bpm) : null}
             look={look}
             onLook={setLook}
-            onPlayStop={() =>
-              isPlaying ? session.project.engine.stop() : session.project.engine.play()
-            }
-            onRewind={() => session.project.engine.setPosition(0)}
+            onPlayStop={playStop}
+            onRewind={rewind}
+          />
+
+          <RecordPanel
+            skin={skin}
+            accent={accent.solid}
+            accentFg={accent.fg}
+            armedTrackName={recordTrack?.name ?? null}
+            devices={devices}
+            deviceId={deviceId}
+            isRecording={isRecording}
+            countIn={countIn}
+            busy={busy}
+            error={recError}
+            onAddTrack={(name) => void addTrack(name)}
+            onChooseDevice={chooseDevice}
+            onCountIn={setCountIn}
+            onRecord={() => void record()}
+            onStop={stopRecord}
           />
 
           <Timeline
@@ -259,13 +392,7 @@ export default function DawApp() {
             bpm={song?.bpm ? tempoOf(song.bpm) : null}
             muted={NO_LANES}
             soloed={NO_LANES}
-            onScrub={(s) =>
-              // The engine positions in musical time, so a scrub in seconds has
-              // to go back through the tempo map rather than being scaled.
-              session.project.engine.setPosition(
-                session.project.tempoMap.secondsToPPQN(s),
-              )
-            }
+            onScrub={scrub}
           />
         </>
       )}
