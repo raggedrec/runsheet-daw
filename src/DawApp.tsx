@@ -20,6 +20,9 @@ import { useLook } from "./useLook";
 import { accents, skins } from "./theme";
 import { RecordPanel } from "./RecordPanel";
 import { StartScreen } from "./StartScreen";
+import { collectTakes } from "./opendaw/take";
+import { saveSession } from "./session";
+import { uploadToIdeaDrop } from "./runsheet";
 import { useTransportClock } from "./useTransportClock";
 import {
   addRecordTrack, armTrack, listInputs, RecordingError,
@@ -55,6 +58,9 @@ export default function DawApp() {
   const [countIn, setCountIn] = useState(true);
   const [busy, setBusy] = useState(false);
   const [recError, setRecError] = useState<{ message: string; remedy: string } | null>(null);
+  /** Takes recorded this visit that haven't reached Idea Drop yet. */
+  const [unsaved, setUnsaved] = useState(0);
+  const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "failed">("idle");
   const skin = skins[look.skin];
   const accent = accents[look.accent];
 
@@ -285,14 +291,87 @@ export default function DawApp() {
     }
   }, [session, countIn, clock]);
 
-  const stopRecord = useCallback(() => {
-    if (!session) return;
+  const stopRecord = useCallback(async () => {
+    if (!session || !recordTrack || !song) return;
     endRecording(session.project);
     session.project.engine.stop();
     clock.stop(clock.seconds);
     setRolling(false);
     setIsRecording(false);
-  }, [session, clock]);
+
+    /*
+     * The take is already in the engine — it's a region on the track that was
+     * armed. What's missing is that `lanes` was built once at load time, so
+     * nothing tells the canvas to draw it.
+     *
+     * Reading it back locally rather than round-tripping through Idea Drop:
+     * the peaks were computed during recording and the audio is in memory.
+     * Uploading and re-downloading to see what we already have would cost a
+     * WAV upload and a download to display bytes we're holding.
+     */
+    try {
+      const takes = await collectTakes(recordTrack.capture, recordTrack.name);
+      if (takes.length === 0) {
+        setRecError({
+          message: "Nothing was recorded.",
+          remedy: "The input produced no audio. Check the device is passing signal.",
+        });
+        return;
+      }
+
+      setLanes((current) => [
+        ...current,
+        ...takes.map((t) => ({
+          name: t.name,
+          // No Idea Drop row exists yet, so the lane is keyed by something
+          // stable and local until the upload gives it a real id.
+          fileId: `take:${crypto.randomUUID()}`,
+          seconds: t.seconds,
+          peaks: t.peaks,
+        })),
+      ]);
+      setUnsaved((n) => n + takes.length);
+
+      // Upload after the lane appears, not before: the take is visible and
+      // playable while it uploads, and a failed upload doesn't hide it.
+      for (const take of takes) {
+        await uploadToIdeaDrop(song, new File([take.wav], `${take.name}.wav`), "stem");
+        setUnsaved((n) => Math.max(0, n - 1));
+      }
+    } catch (err) {
+      setRecError({
+        message: "The take didn't reach Idea Drop.",
+        remedy:
+          err instanceof Error
+            ? `${err.message} The recording is still here — don't close the tab.`
+            : "The recording is still here — don't close the tab.",
+      });
+    }
+  }, [session, recordTrack, song, clock]);
+
+  /** Saves the whole session: tracks, faders, pans, effects, arrangement. */
+  const save = useCallback(async () => {
+    if (!session || !song) return;
+    setSaveState("saving");
+    try {
+      await saveSession(song, session.project.toArrayBuffer());
+      setSaveState("saved");
+    } catch {
+      setSaveState("failed");
+    }
+  }, [session, song]);
+
+  /*
+   * A take that hasn't uploaded exists only in this tab. The browser only
+   * allows a generic warning — the wording is the browser's, not ours — but a
+   * generic warning beats losing a performance to a stray Cmd-W.
+   */
+  useEffect(() => {
+    if (unsaved === 0) return;
+    const warn = (e: BeforeUnloadEvent) => e.preventDefault();
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [unsaved]);
 
   return (
     <main style={{ ...S.page, color: skin.fg, maxWidth: 1180 }}>
@@ -365,6 +444,8 @@ export default function DawApp() {
             onLook={setLook}
             onPlayStop={playStop}
             onRewind={rewind}
+            saveState={saveState}
+            onSave={() => void save()}
           />
 
           <RecordPanel
@@ -382,7 +463,7 @@ export default function DawApp() {
             onChooseDevice={chooseDevice}
             onCountIn={setCountIn}
             onRecord={() => void record()}
-            onStop={stopRecord}
+            onStop={() => void stopRecord()}
           />
 
           <Timeline

@@ -24,10 +24,13 @@ export interface TransportProps {
   onLook: (patch: Partial<Look>) => void;
   onPlayStop: () => void;
   onRewind: () => void;
+  saveState: "idle" | "saving" | "saved" | "failed";
+  onSave: () => void;
 }
 
 export function Transport({
   skin, accent, accentFg, isPlaying, position, duration, bpm, look, onLook, onPlayStop, onRewind,
+  saveState, onSave,
 }: TransportProps) {
   const square: React.CSSProperties = {
     width: 34, height: 34,
@@ -100,6 +103,29 @@ export function Transport({
       )}
 
       <div style={{ flex: 1 }} />
+
+      {/*
+        Saves the whole session — tracks, faders, pans, effects, arrangement.
+        Those aren't a settings file we invented; they're openDAW's own graph,
+        so saving the project saves them by construction.
+      */}
+      <button
+        onClick={onSave}
+        disabled={saveState === "saving"}
+        title="Save this session so the mix is here next time"
+        style={{
+          height: 32, paddingInline: 12,
+          font: `600 ${size.xs}px ${font.body}`,
+          letterSpacing: ".08em", textTransform: "uppercase",
+          color: saveState === "failed" ? "#C0453B" : skin.fg,
+          background: "transparent",
+          border: `1px solid ${saveState === "failed" ? "#C0453B" : skin.border}`,
+          borderRadius: radius.md,
+          cursor: saveState === "saving" ? "default" : "pointer",
+        }}
+      >
+        {saveState === "saving" ? "Saving…" : saveState === "saved" ? "Saved" : saveState === "failed" ? "Retry save" : "Save"}
+      </button>
 
       <LookControls skin={skin} look={look} onLook={onLook} />
     </div>
