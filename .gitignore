@@ -11,3 +11,6 @@ node_modules/
 dist/
 .vercel/
 .DS_Store
+
+# Copied from node_modules by scripts/sync-wasm.mjs — never committed
+public/opendaw-wasm/

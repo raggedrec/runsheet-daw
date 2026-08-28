@@ -1,0 +1,33 @@
+{
+  "name": "runsheet-daw",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Recording and playback for Run Sheet, built on the openDAW SDK.",
+  "license": "AGPL-3.0-or-later",
+  "type": "module",
+  "scripts": {
+    "predev": "node scripts/sync-wasm.mjs",
+    "dev": "vite",
+    "prebuild": "node scripts/sync-wasm.mjs",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview",
+    "lint": "oxlint src/",
+    "sync:wasm": "node scripts/sync-wasm.mjs"
+  },
+  "dependencies": {
+    "@opendaw/studio-core": "^0.2.4",
+    "@opendaw/studio-core-wasm": "^0.0.15",
+    "@supabase/supabase-js": "^2.112.4",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8"
+  },
+  "devDependencies": {
+    "@types/node": "^26.4.0",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.5",
+    "@vitejs/plugin-react": "^6.1.1",
+    "oxlint": "^1.80.0",
+    "typescript": "^7.0.2",
+    "vite": "^8.2.2"
+  }
+}
