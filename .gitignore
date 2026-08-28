@@ -1,0 +1,13 @@
+# Secrets — never commit any of these
+.env
+.env.*
+!.env.example
+.claude/
+*.pem
+*.key
+
+# Build output and dependencies
+node_modules/
+dist/
+.vercel/
+.DS_Store
