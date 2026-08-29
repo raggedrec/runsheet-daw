@@ -8,8 +8,6 @@ Written so the next session doesn't rediscover any of this. Read this before tou
 - Timeline: waveform lanes from openDAW peaks, bar ruler, playhead, click-drag scrub.
 - Tracks column beside the timeline: name, M, S, R. Click the name to select a track.
 - Mixer: vertical strips + master, fader / pan / mute / solo, writing straight to boxes.
-- Effects rack: add and remove openDAW devices on the selected track (no parameter editing).
-- Idea Drop browser, grouped by role.
 - Status bar: sample rate, CPU from `engine.cpuLoad`, position.
 - Light/dark skins, accent, lane height — persisted per browser.
 - Sample cache: second open of a song does no network and no decoding.
@@ -38,8 +36,6 @@ Written so the next session doesn't rediscover any of this. Read this before tou
   guessed at. Deliberately deferred.
 - Mix / stem bounce: `OfflineEngineRenderer` + `ExportConfiguration` (`stems` map per unit with
   `includeAudioEffects`, `includeSends`, `skipChannelStrip`; plus `range`).
-- Zoom. The whole song is squeezed to the window width. `TimelineRange` in studio-core/ui does
-  the pixel↔time maths.
 - Sign-in inside the DAW. On localhost there is no shared cookie domain, so the DAW can't see
   the Run Sheet session — this is what blocks local testing of anything past the start screen.
 
@@ -57,12 +53,26 @@ Written so the next session doesn't rediscover any of this. Read this before tou
 long before any of the above has happened.
 
 Last known state: `[RecordAudio] start` is reached with a clean latency report, so the capture
-side builds correctly. `isRecording` stays false. Current code plays first, confirms
-`isPlaying`, then arms — untested at time of writing.
+side builds correctly, and `isRecording` stayed false. The current code therefore plays FIRST,
+waits for `isPlaying`, and only then arms — the reverse of four earlier attempts, all of which
+armed first and tried to start the transport afterwards.
+
+**This has not been tested since that change.** It is the single next thing to try, and the
+engine log will say which step failed if it still doesn't work.
 
 **The engine log panel in the app is the tool for this.** It captures openDAW's console output
 and unhandled rejections. Six fixes were shipped before it existed, all guesses, all wrong.
 Do not debug this without reading it.
+
+## Still to build, in the order I'd do it
+
+1. Test recording. Everything else is improvement; this is foundation.
+2. Session reload (see above) — saving works, loading doesn't, so a saved mix
+   currently cannot come back.
+3. Timeline markers with editable text. Needs `MarkerBox` / `MarkerTrack`, so
+   they survive a reload — markers that vanish would be worse than none.
+4. Mixer meters (see above).
+5. Mix and stem bounce to Idea Drop.
 
 ## Traps — every one of these cost hours
 
