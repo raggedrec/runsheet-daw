@@ -291,7 +291,7 @@ export default function DawApp() {
       session.project.engine.setPosition(
         session.project.tempoMap.secondsToPPQN(clock.seconds),
       );
-      beginRecording(session.project, countIn);
+      await beginRecording(session.project, countIn);
 
       /*
        * Report what the engine actually did, a beat later. The log showed

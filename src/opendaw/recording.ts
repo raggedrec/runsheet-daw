@@ -162,7 +162,7 @@ export function disarmAll(project: Project): void {
  * the transport before the stream is live and the take begins with a hole
  * exactly as long as the device took to open.
  */
-export function startRecording(project: Project, countIn: boolean): void {
+export async function startRecording(project: Project, countIn: boolean): Promise<void> {
   const armed = project.captureDevices.filterArmed();
   if (armed.length === 0) {
     throw new RecordingError(
@@ -170,31 +170,52 @@ export function startRecording(project: Project, countIn: boolean): void {
       "Add a track, choose an input and arm it before recording.",
     );
   }
+
   /*
    * No prepareRecording() here. Recording.start does it itself — it awaits
-   * every armed capture's prepareRecording, then clears their recorded regions,
-   * then calls startRecording on each. Doing it first as well meant preparing
-   * twice, and CaptureAudio nulls its prepared worklet once used.
+   * every armed capture's prepareRecording, then clears their recorded
+   * regions, then calls startRecording on each.
    */
   project.startRecording(countIn);
 
   /*
-   * And then roll the transport, because startRecording does not.
+   * Now wait, because startRecording does not.
    *
-   * This is the whole bug. Recording.start arms the capture chain and calls
-   * engine.prepareRecordingState(countIn) — it prepares. It never starts
-   * playback. With the transport stopped: the stems are silent, RecordAudio
-   * has nothing to capture, no region is ever produced, and Stop has nothing
-   * to stop. One cause, all three symptoms.
+   * Project.startRecording calls `Recording.start(this, countIn).finally()`
+   * and returns immediately — fire and forget. Recording.start is async: it
+   * awaits prepareRecording on every capture, and only afterwards calls
+   * engine.prepareRecordingState(), which resets the transport.
    *
-   * The engine log proved the capture side was fine all along — "[RecordAudio]
-   * start" was reached with no warnings — which is what finally pointed here.
-   *
-   * With a count-in, openDAW rolls once the count completes, so `play()` is
-   * only forced when it isn't already going.
+   * So anything done on the line after startRecording happens BEFORE the
+   * engine has been prepared, and is then wiped by the prepare that lands
+   * later. A play() call there is silently discarded — which is exactly what
+   * the engine log showed: [RecordAudio] start, and 800ms later isPlaying,
+   * isRecording and isCountingIn all false with position 0.
    */
-  if (!countIn && !project.engine.isPlaying.getValue()) {
-    project.engine.play();
+  const { engine } = project;
+  const deadline = Date.now() + 4000;
+  while (Date.now() < deadline) {
+    if (engine.isRecording.getValue() || engine.isCountingIn.getValue()) break;
+    await new Promise((resolve) => setTimeout(resolve, 40));
+  }
+
+  if (!engine.isRecording.getValue() && !engine.isCountingIn.getValue()) {
+    throw new RecordingError(
+      "The engine never started recording.",
+      "openDAW prepared the input but the transport didn't arm. Check the engine log.",
+    );
+  }
+
+  /*
+   * Roll the transport. prepareRecordingState arms; it doesn't play. Without
+   * this the stems are silent, there is nothing to play along to, and the
+   * recorder captures against a stationary timeline.
+   *
+   * With a count-in openDAW starts the transport itself once the count
+   * finishes, so this only forces the case where nothing is moving.
+   */
+  if (!countIn && !engine.isPlaying.getValue()) {
+    engine.play();
   }
 }
 
