@@ -95,7 +95,10 @@ export function MarkerStrip({
       style={{
         position: "relative", height: STRIP_HEIGHT, flex: "0 0 auto",
         borderBottom: `1px solid ${skin.laneLine}`,
-        background: skin.surfaceSunken, overflow: "hidden",
+        // Visible, or the quick-pick popover (which drops below the strip) gets
+        // clipped and the + Marker button looks dead. The flags clip themselves
+        // in an inner layer instead.
+        background: skin.surfaceSunken, overflow: "visible",
       }}
     >
       {/* Add-at-playhead, pinned left so it doesn't move with the timeline. */}
@@ -150,6 +153,9 @@ export function MarkerStrip({
         </div>
       )}
 
+      {/* Flags clip to the strip here, so a marker at the edge doesn't spill —
+          without clipping the popover above, which lives outside this layer. */}
+      <div style={{ position: "absolute", inset: 0, overflow: "hidden" }}>
       {markers.map((m) => {
         const x = dragging?.uuid === m.uuid ? dragging.x : secondsToX(m.seconds);
         // Off-screen markers just don't render; the window has scrolled past them.
@@ -210,6 +216,7 @@ export function MarkerStrip({
           </div>
         );
       })}
+      </div>
     </div>
   );
 }
