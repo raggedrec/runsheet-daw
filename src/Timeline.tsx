@@ -180,12 +180,13 @@ export function Timeline({
             ctx.lineTo(x1, mid + 0.5);
             ctx.stroke();
 
-            // The full peak envelope, solid. A gradient that faded the peaks
-            // looked like a glow on the bright white default but made the darker
-            // track colours vanish at their extremes — the waveform collapsed to
-            // its centre and looked half-drawn. Solid shows both sides and the
-            // real peaks, which is what a DAW is for.
-            ctx.beginPath();
+            // The full peak envelope, solid. renderPixelStrips fillRects the min
+            // and max of each pixel column IMMEDIATELY with the current fillStyle
+            // — it doesn't build a path — so the colour MUST be set before the
+            // call. Setting it after (which the gradient rewrite did) painted the
+            // envelope in the leftover fill, so only the strokes showed and a
+            // stereo lane looked drawn on one side.
+            ctx.fillStyle = on ? waveColour : skin.waveMuted;
             PeaksPainter.renderPixelStrips(ctx, peaks, ch, {
               u0: visStart * framesPerSecond,
               u1: visEnd * framesPerSecond,
@@ -197,8 +198,6 @@ export function Timeline({
               y0,
               y1,
             });
-            ctx.fillStyle = on ? waveColour : skin.waveMuted;
-            ctx.fill();
           }
         }
         ctx.restore();
