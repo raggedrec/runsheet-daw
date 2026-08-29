@@ -179,9 +179,10 @@ export async function uploadToIdeaDrop(
   song: Song,
   file: File,
   role: "stem" | "mix",
-): Promise<void> {
+): Promise<SongFile> {
   const id = crypto.randomUUID();
   const storagePath = `${song.sceneId}/${song.id}/${id}-${file.name}`;
+  const kind = file.name.split(".").pop()?.toLowerCase() ?? "mp3";
 
   const { error: upErr } = await supabase.storage.from("idea-drop").upload(storagePath, file);
   if (upErr) throw new LoadError(upErr.message, "The upload didn't complete. Try again.");
@@ -192,7 +193,7 @@ export async function uploadToIdeaDrop(
     track_id: song.id,
     name: file.name,
     storage_path: storagePath,
-    kind: file.name.split(".").pop()?.toLowerCase() ?? "mp3",
+    kind,
     role,
   });
 
@@ -208,4 +209,8 @@ export async function uploadToIdeaDrop(
       "The audio is safe in storage. Tell Shayne — it needs linking by hand.",
     );
   }
+
+  // The row as it now exists, so the caller can show it in Idea Drop without a
+  // re-fetch — and download or delete it like any other file.
+  return { id, name: file.name, storagePath, role, kind, addedAt: Date.now() };
 }

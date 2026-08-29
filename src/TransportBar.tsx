@@ -41,6 +41,8 @@ export interface TransportBarProps {
   onCountIn: (on: boolean) => void;
   saveState: "idle" | "saving" | "saved" | "failed";
   onSave: () => void;
+  bouncing: boolean;
+  onBounce: () => void;
 }
 
 export function TransportBar(p: TransportBarProps) {
@@ -214,6 +216,23 @@ export function TransportBar(p: TransportBarProps) {
         }}
       >
         {p.saveState === "saving" ? "Saving…" : p.saveState === "saved" ? "Saved" : p.saveState === "failed" ? "Retry save" : "Save"}
+      </button>
+
+      <button
+        onClick={p.onBounce}
+        disabled={p.bouncing}
+        title="Render the whole mix to a WAV in Idea Drop"
+        style={{
+          height: 32, paddingInline: 12,
+          font: `600 ${size.xs}px ${font.body}`,
+          letterSpacing: ".08em", textTransform: "uppercase",
+          color: skin.fg, background: "transparent",
+          border: `1px solid ${skin.border}`, borderRadius: radius.md,
+          cursor: p.bouncing ? "default" : "pointer",
+          opacity: p.bouncing ? 0.6 : 1,
+        }}
+      >
+        {p.bouncing ? "Bouncing…" : "Bounce"}
       </button>
 
       <LookControls skin={skin} look={p.look} onLook={p.onLook} zoom={p.zoom} onZoom={p.onZoom} />

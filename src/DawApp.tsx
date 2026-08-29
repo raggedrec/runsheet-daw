@@ -37,6 +37,8 @@ import { useConsoleLog } from "./useConsoleLog";
 import { collectTakes } from "./opendaw/take";
 import { saveSession } from "./session";
 import { uploadToIdeaDrop, downloadUrl, deleteIdeaDropFile } from "./runsheet";
+import { bounceMix } from "./opendaw/bounce";
+import { encodeWav } from "./wav";
 import { Dialog } from "./Dialog";
 import { useTransport } from "./useTransport";
 import {
@@ -73,6 +75,7 @@ export default function DawApp() {
   /** Takes recorded this visit that haven't reached Idea Drop yet. */
   const [unsaved, setUnsaved] = useState(0);
   const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "failed">("idle");
+  const [bouncing, setBouncing] = useState(false);
   /*
    * Bumped after any mixer change. The mix lives in openDAW's boxes, not in
    * React state — this is only the nudge that tells React to re-read them, so
@@ -694,6 +697,33 @@ export default function DawApp() {
     }
   }, [session, song]);
 
+  /**
+   * Bounce the whole mix to a WAV in Idea Drop.
+   *
+   * Renders the master offline (faster than real time), encodes the same 16-bit
+   * WAV as a take, and uploads it as a "mix". The returned row is appended to the
+   * file list so it shows in Idea Drop straight away, downloadable and deletable
+   * like any other file.
+   */
+  const bounce = useCallback(async () => {
+    if (!session || !song || bouncing) return;
+    setBouncing(true);
+    setRecError(null);
+    try {
+      const audio = await bounceMix(session.project, session.audioContext.sampleRate);
+      const wav = encodeWav(audio);
+      const uploaded = await uploadToIdeaDrop(song, new File([wav], `${song.name} Mix.wav`), "mix");
+      setSong((s) => (s ? { ...s, files: [...s.files, uploaded] } : s));
+    } catch (err) {
+      setRecError({
+        message: "The bounce didn't finish.",
+        remedy: err instanceof Error ? err.message : "Try again.",
+      });
+    } finally {
+      setBouncing(false);
+    }
+  }, [session, song, bouncing]);
+
   /*
    * A take that hasn't uploaded exists only in this tab. The browser only
    * allows a generic warning — the wording is the browser's, not ours — but a
@@ -812,6 +842,8 @@ export default function DawApp() {
             onCountIn={setCountIn}
             saveState={saveState}
             onSave={() => void save()}
+            bouncing={bouncing}
+            onBounce={() => void bounce()}
           />
 
           {/* The add-track form used to live here as a wide dead-space panel.
