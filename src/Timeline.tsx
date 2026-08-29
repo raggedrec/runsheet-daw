@@ -16,6 +16,20 @@ import { PeaksPainter } from "@opendaw/lib-fusion";
 import type { LoadedLane } from "./opendaw/loadSong";
 import { font, laneColorFor, size, type Skin } from "./theme";
 
+/**
+ * A hex skin colour at a given alpha, for gradient stops and the baseline.
+ *
+ * The wave colours are #RRGGBB; canvas gradients need rgba to fade. Anything
+ * that isn't a plain hex (already-rgba muted colours) is returned untouched.
+ */
+function withAlpha(color: string, alpha: number): string {
+  if (color.length === 7 && color.startsWith("#")) {
+    const n = parseInt(color.slice(1), 16);
+    return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${alpha})`;
+  }
+  return color;
+}
+
 const RULER_HEIGHT = 26;
 /**
  * Width of the in-canvas label column.
@@ -128,8 +142,6 @@ export function Timeline({
         ctx.beginPath();
         ctx.rect(trackX, top, trackW, laneHeight);
         ctx.clip();
-        ctx.fillStyle = on ? skin.wave : skin.waveMuted;
-        ctx.strokeStyle = on ? skin.wave : skin.waveMuted;
 
         /*
          * The slice of THIS lane the window can see, in seconds.
@@ -146,8 +158,26 @@ export function Timeline({
 
         if (visEnd > visStart) {
           const framesPerSecond = peaks.numFrames / lane.seconds;
+          const x0 = secondsToX(visStart);
+          const x1 = secondsToX(visEnd);
           for (let ch = 0; ch < channels; ch++) {
             const y0 = top + pad + ch * chHeight;
+            const y1 = y0 + chHeight;
+            const mid = (y0 + y1) / 2;
+
+            // A faint baseline so a silent or quiet passage still reads as a
+            // lane of audio, not an empty gap.
+            ctx.strokeStyle = withAlpha(skin.wave, on ? 0.28 : 0.14);
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.moveTo(x0, mid + 0.5);
+            ctx.lineTo(x1, mid + 0.5);
+            ctx.stroke();
+
+            // The peak envelope, filled with a vertical "spine" gradient —
+            // brightest along the centre line, softer toward the peaks. It gives
+            // the waveform depth without a second colour or the accent (which the
+            // skin deliberately keeps off the waveform).
             ctx.beginPath();
             PeaksPainter.renderPixelStrips(ctx, peaks, ch, {
               u0: visStart * framesPerSecond,
@@ -155,11 +185,20 @@ export function Timeline({
               // Peaks are normalised to ±1.
               v0: -1,
               v1: 1,
-              x0: secondsToX(visStart),
-              x1: secondsToX(visEnd),
+              x0,
+              x1,
               y0,
-              y1: y0 + chHeight,
+              y1,
             });
+            if (on) {
+              const g = ctx.createLinearGradient(0, y0, 0, y1);
+              g.addColorStop(0, withAlpha(skin.wave, 0.55));
+              g.addColorStop(0.5, skin.wave);
+              g.addColorStop(1, withAlpha(skin.wave, 0.55));
+              ctx.fillStyle = g;
+            } else {
+              ctx.fillStyle = skin.waveMuted;
+            }
             ctx.fill();
           }
         }
