@@ -200,6 +200,16 @@ export async function loadSongIntoProject(
   project.editing.modify(() => {
     project.api.setBpm(bpm);
 
+    /*
+     * Turn the loop off. A new openDAW project ships with a loop area enabled
+     * over the first few bars, so the transport wraps and recording cuts a new
+     * take every pass — playing eight bars where you asked for one. This app
+     * plays a whole song against its stems and overdubs onto it linearly; there
+     * is no loop UI, so an on-by-default loop can only surprise. Disable it once,
+     * here, where the song is set up.
+     */
+    project.timelineBox.loopArea.enabled.setValue(false);
+
     prepared.forEach((p, i) => {
       /*
        * Tape is openDAW's audio playback device — the one that plays recorded
