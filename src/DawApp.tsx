@@ -21,6 +21,7 @@ import { accents, skins } from "./theme";
 import { RecordPanel } from "./RecordPanel";
 import { StartScreen } from "./StartScreen";
 import { Mixer, audibility } from "./Mixer";
+import { useConsoleLog } from "./useConsoleLog";
 import { collectTakes } from "./opendaw/take";
 import { saveSession } from "./session";
 import { uploadToIdeaDrop } from "./runsheet";
@@ -65,6 +66,13 @@ export default function DawApp() {
    * there's never a second copy to disagree with the graph.
    */
   const [mixRevision, setMixRevision] = useState(0);
+  /*
+   * openDAW reports failures through the console and nothing else — a
+   * recording that never started and a take with no signal look identical
+   * from outside. Captured from the first render so nothing is missed.
+   */
+  const logs = useConsoleLog(true);
+  const [showLog, setShowLog] = useState(false);
   const skin = skins[look.skin];
   const accent = accents[look.accent];
 
@@ -300,6 +308,16 @@ export default function DawApp() {
 
   const stopRecord = useCallback(async () => {
     if (!session || !recordTrack || !song) return;
+    /*
+     * The UI leaves the recording state immediately, before any waiting.
+     * Previously this flag was cleared only after the take had been collected
+     * and uploaded, so if openDAW never finalised, the button stayed on "Stop"
+     * and pressing it again did nothing — the app looked frozen mid-take.
+     * Whether openDAW stops is openDAW's problem; whether the button works is
+     * ours.
+     */
+    setIsRecording(false);
+    setRolling(false);
     // Waits for openDAW to finalise the take. It does that asynchronously,
     // from a subscriber on isRecording — reading the regions before that has
     // happened is what produced "Nothing was recorded" on good takes.
@@ -478,6 +496,63 @@ export default function DawApp() {
             onRecord={() => void record()}
             onStop={() => void stopRecord()}
           />
+
+          {logs.length > 0 && (
+            <section
+              style={{
+                background: skin.surface,
+                border: `1px solid ${skin.border}`,
+                borderRadius: 6,
+                marginBottom: 16,
+                overflow: "hidden",
+              }}
+            >
+              <button
+                onClick={() => setShowLog((v) => !v)}
+                style={{
+                  width: "100%", textAlign: "left", cursor: "pointer",
+                  background: "transparent", border: "none", padding: "10px 16px",
+                  font: "600 11px ui-sans-serif, system-ui", letterSpacing: ".08em",
+                  textTransform: "uppercase", color: skin.fgSubtle,
+                }}
+              >
+                {showLog ? "▾" : "▸"} Engine log · {logs.length}
+                {logs.some((l) => l.level === "error" || l.level === "warn") && (
+                  <span style={{ color: "#C0453B" }}>
+                    {" "}· {logs.filter((l) => l.level === "error" || l.level === "warn").length} problem
+                    {logs.filter((l) => l.level === "error" || l.level === "warn").length === 1 ? "" : "s"}
+                  </span>
+                )}
+              </button>
+              {showLog && (
+                <div
+                  style={{
+                    maxHeight: 220, overflowY: "auto",
+                    borderTop: `1px solid ${skin.border}`,
+                    padding: "8px 16px 12px",
+                    font: "11px ui-monospace, SFMono-Regular, Menlo, monospace",
+                  }}
+                >
+                  {logs.map((line) => (
+                    <div
+                      key={line.id}
+                      style={{
+                        color:
+                          line.level === "error" || line.level === "warn"
+                            ? "#C0453B"
+                            : skin.fgMuted,
+                        padding: "2px 0",
+                        whiteSpace: "pre-wrap",
+                        wordBreak: "break-word",
+                      }}
+                    >
+                      {line.text}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </section>
+          )}
 
           <Timeline
             lanes={lanes}
