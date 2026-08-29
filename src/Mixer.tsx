@@ -264,7 +264,15 @@ function Strip({
         rotation is the fallback that works everywhere today. Ugly in the
         markup, correct on screen.
       */}
-      <div style={{ height: 150, display: "grid", placeItems: "center", width: "100%" }}>
+      {/*
+        The rotated input's LAYOUT box is still 150 wide and ~20 tall — the
+        rotation is purely visual. Centring that box therefore does not centre
+        what you see, which is why the fader sat off to one side of a strip
+        whose other controls were centred. Positioning it from the middle and
+        translating back by half its own size centres the thing on screen
+        rather than the box the browser is reasoning about.
+      */}
+      <div style={{ height: 150, width: "100%", position: "relative" }}>
         <input
           type="range"
           min={0} max={1} step={0.001}
@@ -275,8 +283,12 @@ function Strip({
           onDoubleClick={() => write(() => unit.volume.setValue(AudioUnitBoxAdapter.VolumeMapper.y(UNITY)))}
           title="Volume — double-click for unity"
           style={{
+            position: "absolute",
+            left: "50%",
+            top: "50%",
             width: 150,
-            transform: "rotate(-90deg)",
+            margin: 0,
+            transform: "translate(-50%, -50%) rotate(-90deg)",
             accentColor: isMaster ? skin.fgMuted : accent,
           }}
         />

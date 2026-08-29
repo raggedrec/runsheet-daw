@@ -222,10 +222,17 @@ export function EffectsRack({ project, unit, trackName, skin, accent, revision, 
   );
 }
 
-/** A readable device name, falling back to the box's class rather than "[object]". */
+/**
+ * A readable device name.
+ *
+ * From openDAW's static ClassName, not `constructor.name` — the latter works in
+ * dev and returns a single minified letter in production, which is where the
+ * effects list started showing every device as "e".
+ */
 function labelFor(effect: unknown): string {
-  const box = (effect as { box?: { name?: string; constructor?: { name?: string } } }).box;
-  const raw = box?.constructor?.name ?? "Effect";
+  const ctor = (effect as { box?: { constructor?: { ClassName?: string; name?: string } } })?.box
+    ?.constructor;
+  const raw = ctor?.ClassName ?? ctor?.name ?? "Effect";
   const known = OFFERED.find((d) => raw.startsWith(d.key));
-  return known ? known.label : raw.replace(/DeviceBox$/, "");
+  return known ? known.label : raw.replace(/DeviceBox$/, "").replace(/Box$/, "");
 }

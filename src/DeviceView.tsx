@@ -30,7 +30,7 @@ interface Param {
 
 interface DeviceAdapterish {
   namedParameter?: Record<string, Param>;
-  box: { constructor?: { name?: string }; delete?: () => void };
+  box: unknown;
   enabledField?: { getValue: () => boolean; setValue: (v: boolean) => void };
 }
 
@@ -200,10 +200,23 @@ function ParamRow({
   );
 }
 
+/**
+ * A device's name, from openDAW's own static ClassName.
+ *
+ * NOT `constructor.name`. That works in dev and returns "e" in production,
+ * because the minifier renames classes but leaves string values alone. Every
+ * openDAW box declares `static readonly ClassName`, which is a string and
+ * therefore survives.
+ */
+function boxClassName(box: unknown): string {
+  const ctor = (box as { constructor?: { ClassName?: string; name?: string } })?.constructor;
+  const raw = ctor?.ClassName ?? ctor?.name ?? "Device";
+  return raw.replace(/DeviceBox$/, "").replace(/Box$/, "");
+}
+
 /** Compressor rather than CompressorDeviceBox. */
 function deviceName(device: DeviceAdapterish): string {
-  const raw = device.box?.constructor?.name ?? "Device";
-  return raw.replace(/DeviceBox$/, "").replace(/Box$/, "");
+  return boxClassName(device.box);
 }
 
 /** Enough precision to be useful, not so much that it jitters. */
