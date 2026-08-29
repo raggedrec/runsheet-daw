@@ -308,6 +308,24 @@ function LookControls({
           style={{ width: 70, accentColor: skin.fgMuted }}
         />
       </label>
+
+      {/* Waveforms default to the skin's own colour; this tints each one its
+          track's role colour instead. */}
+      <label
+        style={{
+          display: "flex", alignItems: "center", gap: 5, marginLeft: space[2],
+          font: `600 ${size.xs}px ${font.body}`, letterSpacing: ".08em",
+          textTransform: "uppercase", color: skin.fgSubtle, cursor: "pointer",
+        }}
+        title="Colour each waveform by its track"
+      >
+        <input
+          type="checkbox"
+          checked={look.colorWaveforms}
+          onChange={(e) => onLook({ colorWaveforms: e.target.checked })}
+        />
+        Colour
+      </label>
     </div>
   );
 }

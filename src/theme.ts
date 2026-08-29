@@ -148,6 +148,8 @@ export interface Look {
   skin: SkinName;
   accent: AccentName;
   laneHeight: number;
+  /** Tint each waveform its track's role colour instead of the skin's default. */
+  colorWaveforms: boolean;
 }
 
 /**
@@ -159,7 +161,7 @@ export interface Look {
  */
 export const LANE_HEIGHT = { min: 44, max: 160, default: 84 } as const;
 
-export const DEFAULT_LOOK: Look = { skin: "light", accent: "blue", laneHeight: LANE_HEIGHT.default };
+export const DEFAULT_LOOK: Look = { skin: "light", accent: "blue", laneHeight: LANE_HEIGHT.default, colorWaveforms: false };
 
 /** Clamps anything read back from storage, so a stale value can't break the UI. */
 export function sanitizeLook(raw: unknown): Look {
@@ -174,5 +176,6 @@ export function sanitizeLook(raw: unknown): Look {
     laneHeight: Number.isFinite(h)
       ? Math.min(LANE_HEIGHT.max, Math.max(LANE_HEIGHT.min, Math.round(h)))
       : LANE_HEIGHT.default,
+    colorWaveforms: l.colorWaveforms === true,
   };
 }

@@ -60,12 +60,14 @@ export interface TimelineProps {
   onScroll: (seconds: number) => void;
   /** 0 when a tracks column beside the timeline draws the labels instead. */
   gutter?: number;
+  /** Tint each waveform its track's role colour instead of the skin default. */
+  colorWaveforms?: boolean;
 }
 
 export function Timeline({
   lanes, skin, accent, laneHeight, position, duration, bpm, muted, soloed, onScrub,
   gutter = GUTTER,
-  zoom, scroll, onScroll,
+  zoom, scroll, onScroll, colorWaveforms = false,
 }: TimelineProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const wrapRef = useRef<HTMLDivElement | null>(null);
@@ -160,6 +162,10 @@ export function Timeline({
           const framesPerSecond = peaks.numFrames / lane.seconds;
           const x0 = secondsToX(visStart);
           const x1 = secondsToX(visEnd);
+          // White (the skin default) unless the user opts to tint each waveform
+          // its track's role colour. Muted lanes stay grey either way — muted is
+          // "off", and a colour would argue otherwise.
+          const waveColour = colorWaveforms ? laneColorFor(lane.name) : skin.wave;
           for (let ch = 0; ch < channels; ch++) {
             const y0 = top + pad + ch * chHeight;
             const y1 = y0 + chHeight;
@@ -167,7 +173,7 @@ export function Timeline({
 
             // A faint baseline so a silent or quiet passage still reads as a
             // lane of audio, not an empty gap.
-            ctx.strokeStyle = withAlpha(skin.wave, on ? 0.28 : 0.14);
+            ctx.strokeStyle = withAlpha(waveColour, on ? 0.28 : 0.14);
             ctx.lineWidth = 1;
             ctx.beginPath();
             ctx.moveTo(x0, mid + 0.5);
@@ -192,9 +198,9 @@ export function Timeline({
             });
             if (on) {
               const g = ctx.createLinearGradient(0, y0, 0, y1);
-              g.addColorStop(0, withAlpha(skin.wave, 0.55));
-              g.addColorStop(0.5, skin.wave);
-              g.addColorStop(1, withAlpha(skin.wave, 0.55));
+              g.addColorStop(0, withAlpha(waveColour, 0.55));
+              g.addColorStop(0.5, waveColour);
+              g.addColorStop(1, withAlpha(waveColour, 0.55));
               ctx.fillStyle = g;
             } else {
               ctx.fillStyle = skin.waveMuted;
@@ -304,7 +310,7 @@ export function Timeline({
     ctx.lineTo(px, 8);
     ctx.closePath();
     ctx.fill();
-  }, [lanes, skin, accent, laneHeight, position, duration, bpm, audible, height, gutter, zoom, scroll]);
+  }, [lanes, skin, accent, laneHeight, position, duration, bpm, audible, height, gutter, zoom, scroll, colorWaveforms]);
 
   useEffect(() => {
     draw();

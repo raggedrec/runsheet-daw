@@ -912,6 +912,7 @@ export default function DawApp() {
                     zoom={zoom}
                     scroll={scroll}
                     onScroll={setScroll}
+                    colorWaveforms={look.colorWaveforms}
                   />
                 </div>
               </div>
