@@ -33,3 +33,47 @@ export function laneName(fileName: string): string {
 function titleCase(s: string): string {
   return s.charAt(0).toUpperCase() + s.slice(1).toLowerCase();
 }
+
+/**
+ * A musical key, written the way musicians write it.
+ *
+ * Case carries meaning here in a way it does not in ordinary text: "C" is C
+ * major and "Cm" is C minor; "Bb" is B flat and "BB" is nothing at all. So a
+ * key must never be run through textTransform: uppercase — which is exactly
+ * what was turning Cm into CM on the start screen.
+ *
+ * Run Sheet's key field is free text, so this also tidies what people type:
+ * lower-case note letters get capitalised, a flat is a lower-case b whatever
+ * was typed, and the several ways of writing minor collapse to one.
+ */
+export function formatKey(raw: string | null): string | null {
+  if (!raw) return null;
+  const text = raw.trim();
+  if (text.length === 0) return null;
+
+  // Letter, optional accidental, then whatever quality was written.
+  // 'B' is allowed as an accidental so "BB" reads as B flat — people type it.
+  const match = /^([A-Ga-g])\s*([#♯bB♭]?)\s*(.*)$/.exec(text);
+  if (match === null) return text; // Not a key we recognise; show it as typed.
+
+  const [, letter, accidental, rest] = match;
+  const note = letter.toUpperCase();
+  const sign = accidental === "#" || accidental === "♯" ? "#" : accidental ? "b" : "";
+
+  const quality = rest.toLowerCase().trim();
+  if (quality === "" || quality === "major" || quality === "maj") return `${note}${sign}`;
+  if (quality === "m" || quality === "min" || quality === "minor") return `${note}${sign}m`;
+
+  /*
+   * Only reformat what actually looks like a chord quality.
+   *
+   * Every letter A–G also starts ordinary words, so without this "dunno"
+   * parses as D + "unno" and comes back "Dunno" — the function confidently
+   * rewriting text it had no business touching. Anything unrecognised is
+   * returned exactly as typed.
+   */
+  if (/^(m|min|maj)?(6|7|9|11|13)?(sus[24]?|dim|aug|add\d+|\+|°)?\d*$/.test(quality)) {
+    return `${note}${sign}${quality}`;
+  }
+  return text;
+}

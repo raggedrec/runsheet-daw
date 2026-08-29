@@ -12,6 +12,7 @@
  */
 import { Circle, Play, SkipBack, Square } from "lucide-react";
 import { accents, font, radius, size, space, LANE_HEIGHT, type AccentName, type Look, type Skin } from "./theme";
+import { formatKey } from "./naming";
 
 export interface TransportBarProps {
   skin: Skin;
@@ -160,7 +161,7 @@ export function TransportBar(p: TransportBarProps) {
       </div>
 
       <span style={{ font: `500 ${size.xs}px ${font.body}`, letterSpacing: ".08em", color: skin.fgSubtle }}>
-        {[p.bpm ? `${p.bpm} BPM` : null, "4/4", p.songKey].filter(Boolean).join(" · ")}
+        {[p.bpm ? `${p.bpm} BPM` : null, "4/4", formatKey(p.songKey)].filter(Boolean).join(" · ")}
       </span>
 
       <div style={{ flex: 1 }} />

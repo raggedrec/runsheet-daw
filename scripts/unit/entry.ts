@@ -7,6 +7,6 @@
  * appear in this file can't be tested without a browser.
  */
 export { formatTime, formatBars } from "../../src/TransportBar";
-export { laneName, tempoOf } from "../../src/naming";
+export { laneName, tempoOf, formatKey } from "../../src/naming";
 export { sanitizeLook, laneColorFor, LANE_HEIGHT, DEFAULT_LOOK } from "../../src/theme";
 export { encodeWav } from "../../src/wav";

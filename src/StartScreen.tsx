@@ -14,6 +14,7 @@
 import { Play } from "lucide-react";
 import { font, laneColorFor, radius, size, space, type Skin } from "./theme";
 import { laneName } from "./opendaw/loadSong";
+import { formatKey } from "./naming";
 import type { Song, SongFile } from "./runsheet";
 
 export interface StartScreenProps {
@@ -26,7 +27,15 @@ export interface StartScreenProps {
 }
 
 export function StartScreen({ skin, accent, accentFg, song, files, onOpen }: StartScreenProps) {
-  const chips = [song.sceneName, song.bpm ? `${song.bpm} BPM` : null, song.key].filter(Boolean) as string[];
+  /*
+   * The key is NOT uppercased with the others. "Cm" is C minor and "CM" is a
+   * typo; "Bb" is B flat and "BB" is nothing. Case is meaning here.
+   */
+  const chips: Array<{ text: string; shout: boolean }> = [
+    song.sceneName ? { text: song.sceneName, shout: true } : null,
+    song.bpm ? { text: `${song.bpm} BPM`, shout: true } : null,
+    formatKey(song.key) ? { text: formatKey(song.key)!, shout: false } : null,
+  ].filter(Boolean) as Array<{ text: string; shout: boolean }>;
 
   if (files.length === 0) {
     return (
@@ -47,11 +56,11 @@ export function StartScreen({ skin, accent, accentFg, song, files, onOpen }: Sta
       <div style={{ display: "flex", gap: space[2], flexWrap: "wrap", marginBottom: space[4] }}>
         {chips.map((c) => (
           <span
-            key={c}
+            key={c.text}
             style={{
               font: `600 ${size.xs}px ${font.body}`,
               letterSpacing: ".07em",
-              textTransform: "uppercase",
+              textTransform: c.shout ? "uppercase" : "none",
               color: skin.fgMuted,
               background: skin.surfaceSunken,
               border: `1px solid ${skin.border}`,
@@ -59,7 +68,7 @@ export function StartScreen({ skin, accent, accentFg, song, files, onOpen }: Sta
               padding: "4px 10px",
             }}
           >
-            {c}
+            {c.text}
           </span>
         ))}
       </div>

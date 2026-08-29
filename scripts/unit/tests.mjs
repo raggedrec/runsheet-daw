@@ -11,7 +11,7 @@
  * elsewhere.
  */
 import { formatTime, formatBars } from "./bundle.mjs";
-import { laneName, tempoOf } from "./bundle.mjs";
+import { laneName, tempoOf, formatKey } from "./bundle.mjs";
 import { sanitizeLook, laneColorFor, LANE_HEIGHT, DEFAULT_LOOK } from "./bundle.mjs";
 import { encodeWav } from "./bundle.mjs";
 
@@ -57,6 +57,28 @@ eq("nonsense is null", tempoOf("fastish"), null);
 // accepted puts every region in the wrong place.
 eq("absurdly slow is null", tempoOf("3"), null);
 eq("absurdly fast is null", tempoOf("900"), null);
+
+console.log("  musical keys (case is meaning here)");
+// The bug that prompted these: a chip with textTransform uppercase turned
+// C minor into CM and B flat into BB.
+eq("minor keeps its lower-case m", formatKey("Cm"), "Cm");
+eq("major stays bare", formatKey("C"), "C");
+eq("a flat is a lower-case b", formatKey("Bb"), "Bb");
+// People type BB for B flat. It is not a key otherwise, so read it as one.
+eq("BB is B flat", formatKey("BB"), "Bb");
+eq("sharps survive", formatKey("F#m"), "F#m");
+eq("lower case gets capitalised", formatKey("f#m"), "F#m");
+eq("written-out minor collapses", formatKey("C minor"), "Cm");
+eq("min collapses too", formatKey("C min"), "Cm");
+eq("written-out major is dropped", formatKey("A major"), "A");
+eq("maj is dropped", formatKey("A maj"), "A");
+eq("extensions are kept", formatKey("Cm7"), "Cm7");
+eq("unicode flat normalises", formatKey("E♭"), "Eb");
+eq("whitespace is trimmed", formatKey("  Dm  "), "Dm");
+eq("empty is null", formatKey(""), null);
+eq("null is null", formatKey(null), null);
+// Not a key at all — show what was typed rather than mangling it.
+eq("nonsense passes through", formatKey("dunno"), "dunno");
 
 console.log("  look, sanitised");
 {
