@@ -183,7 +183,10 @@ function Strip({
   );
 
   const toggle = (on: boolean, activeColour: string): React.CSSProperties => ({
-    flex: 1, height: 22,
+    // Fixed width, not flex. Stretching meant the master's single M filled the
+    // strip while every other strip split the row in two — so nothing lined up
+    // down the column.
+    width: 34, height: 22,
     font: `700 ${size.xs}px ${font.body}`,
     color: on ? "#fff" : skin.fgSubtle,
     background: on ? activeColour : "transparent",
@@ -216,7 +219,7 @@ function Strip({
 
       {/* Master has no solo — soloing the output is meaningless, and a control
           that does nothing is worse than one that isn't there. */}
-      <div style={{ display: "flex", gap: 4, width: "100%" }}>
+      <div style={{ display: "flex", gap: 4, justifyContent: "center", width: "100%" }}>
         <button onClick={() => write(() => unit.mute.setValue(!muted))} style={toggle(muted, "#C0453B")} title="Mute">
           M
         </button>
@@ -241,25 +244,18 @@ function Strip({
       {isMaster && <div style={{ height: 20, width: "100%" }} />}
 
       {!isMaster && (
-        <label style={{ display: "flex", alignItems: "center", gap: 6, width: "100%" }}>
-          <input
-            type="range"
-            min={-1} max={1} step={0.01}
-            value={panning}
-            onChange={(e) => write(() => unit.panning.setValue(Number(e.target.value)))}
-            onDoubleClick={() => write(() => unit.panning.setValue(0))}
-            title="Pan — double-click to centre"
-            style={{ flex: 1, minWidth: 0, height: 3, accentColor: skin.fgMuted }}
-          />
-          <span
-            style={{
-              font: `500 ${size.xs}px ${font.mono}`, color: skin.fgSubtle,
-              width: 26, textAlign: "right", flex: "0 0 auto",
-            }}
-          >
-            {panLabel(panning)}
-          </span>
-        </label>
+        <input
+          type="range"
+          min={-1} max={1} step={0.01}
+          value={panning}
+          onChange={(e) => write(() => unit.panning.setValue(Number(e.target.value)))}
+          onDoubleClick={() => write(() => unit.panning.setValue(0))}
+          // The value lives in the tooltip rather than beside the slider: a
+          // label on one side pushed the control off-centre, and every other
+          // control in the strip is centred.
+          title={`Pan ${panLabel(panning)} — double-click to centre`}
+          style={{ width: "100%", height: 3, accentColor: skin.fgMuted }}
+        />
       )}
 
       {/*
