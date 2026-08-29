@@ -15,7 +15,7 @@ import {
   type LoadedLane,
   type LoadProgress,
 } from "./opendaw/loadSong";
-import { loadSong, playableFiles, LoadError, type Song } from "./runsheet";
+import { loadSong, playableFiles, LoadError, type Song, type SongFile } from "./runsheet";
 import { isConfigured, requestedSong, supabase } from "./supabase";
 import { S } from "./styles";
 import { Timeline } from "./Timeline";
@@ -32,7 +32,8 @@ import { Browser } from "./Browser";
 import { useConsoleLog } from "./useConsoleLog";
 import { collectTakes } from "./opendaw/take";
 import { saveSession } from "./session";
-import { uploadToIdeaDrop } from "./runsheet";
+import { uploadToIdeaDrop, downloadUrl, deleteIdeaDropFile } from "./runsheet";
+import { Dialog } from "./Dialog";
 import { useTransport } from "./useTransport";
 import {
   addRecordTrack, armTrack, captureFor, disarmAll, listInputs, RecordingError,
@@ -496,6 +497,66 @@ export default function DawApp() {
     }
   }, [isRecording, transport, stopRecord]);
 
+  /*
+   * Track and file management: remove a lane, download a take, delete a file.
+   *
+   * The two that lose something — removing a lane, deleting a file — go through
+   * the dialog rather than acting on one click. Removing a lane offers to also
+   * delete the underlying file when the lane maps to one; deleting from Idea
+   * Drop is always its own explicit, confirmed action. Download just saves.
+   */
+  const [pending, setPending] = useState<
+    | { kind: "remove-lane"; lane: LoadedLane; file: SongFile | null }
+    | { kind: "delete-file"; file: SongFile }
+    | null
+  >(null);
+
+  /** Removes a lane from the arrangement — the track, its regions, its strip. */
+  const removeLaneFromArrangement = useCallback(
+    (lane: LoadedLane) => {
+      if (!session) return;
+      session.project.editing.modify(() => session.project.api.deleteAudioUnit(lane.unit));
+      setLanes((current) => current.filter((l) => l.fileId !== lane.fileId));
+      if (armedLane === lane.fileId) setArmedLane(null);
+      setSelected((current) => (current?.fileId === lane.fileId ? null : current));
+      if (recordTrack && recordTrack.capture.audioUnitBox === lane.unit) setRecordTrack(null);
+      bump();
+    },
+    [session, armedLane, recordTrack, bump],
+  );
+
+  /** Saves a take/file to disk. The signed URL carries an attachment header, so
+      following it downloads rather than navigating this tab away. */
+  const downloadFile = useCallback(async (file: SongFile) => {
+    try {
+      const url = await downloadUrl(file.storagePath, file.name);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = file.name;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+    } catch (err) {
+      setRecError({
+        message: "Couldn't download the file.",
+        remedy: err instanceof Error ? err.message : "Try again.",
+      });
+    }
+  }, []);
+
+  /** Deletes a file from Idea Drop for good, then drops it from the list. */
+  const deleteFile = useCallback(async (file: SongFile) => {
+    try {
+      await deleteIdeaDropFile(file);
+      setSong((s) => (s ? { ...s, files: s.files.filter((f) => f.id !== file.id) } : s));
+    } catch (err) {
+      setRecError({
+        message: "Couldn't delete the file.",
+        remedy: err instanceof Error ? err.message : "Try again.",
+      });
+    }
+  }, []);
+
   /** Saves the whole session: tracks, faders, pans, effects, arrangement. */
   const save = useCallback(async () => {
     if (!session || !song) return;
@@ -727,7 +788,14 @@ export default function DawApp() {
                 onSolo={toggleSolo}
                 onArm={toggleArm}
                 onSelect={setSelected}
-              onRename={renameLane}
+                onRename={renameLane}
+                onRemove={(lane) =>
+                  setPending({
+                    kind: "remove-lane",
+                    lane,
+                    file: song?.files.find((f) => f.id === lane.fileId) ?? null,
+                  })
+                }
                 selected={selected?.fileId ?? null}
               />
               <div style={{ flex: 1, minWidth: 0 }}>
@@ -756,6 +824,8 @@ export default function DawApp() {
                   song={song}
                   skin={skin}
                   loaded={new Set(lanes.map((l) => l.fileId))}
+                  onDownload={(file) => void downloadFile(file)}
+                  onDelete={(file) => setPending({ kind: "delete-file", file })}
                 />
               </div>
             )}
@@ -793,6 +863,62 @@ export default function DawApp() {
             audioContext={session.audioContext}
             position={seconds}
           />
+
+          {pending && (
+            <Dialog
+              skin={skin}
+              onCancel={() => setPending(null)}
+              title={
+                pending.kind === "remove-lane"
+                  ? `Remove “${pending.lane.name}”?`
+                  : `Delete “${pending.file.name}”?`
+              }
+              message={
+                pending.kind === "remove-lane"
+                  ? pending.file
+                    ? "Remove it from the arrangement, or also delete its file from Idea Drop? Deleting the file is permanent."
+                    : "This removes the track from the arrangement. Any take you recorded stays in Idea Drop."
+                  : "This permanently deletes the file from Idea Drop. There is no undo."
+              }
+              actions={
+                pending.kind === "remove-lane"
+                  ? [
+                      {
+                        label: "Remove from arrangement",
+                        variant: "primary",
+                        onClick: () => {
+                          removeLaneFromArrangement(pending.lane);
+                          setPending(null);
+                        },
+                      },
+                      ...(pending.file
+                        ? [
+                            {
+                              label: "Remove and delete file",
+                              variant: "danger" as const,
+                              onClick: () => {
+                                const file = pending.file;
+                                removeLaneFromArrangement(pending.lane);
+                                if (file) void deleteFile(file);
+                                setPending(null);
+                              },
+                            },
+                          ]
+                        : []),
+                    ]
+                  : [
+                      {
+                        label: "Delete permanently",
+                        variant: "danger",
+                        onClick: () => {
+                          void deleteFile(pending.file);
+                          setPending(null);
+                        },
+                      },
+                    ]
+              }
+            />
+          )}
         </>
       )}
 

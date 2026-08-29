@@ -121,6 +121,45 @@ export async function signedUrl(storagePath: string): Promise<string> {
 }
 
 /**
+ * A one-hour URL that downloads rather than opens.
+ *
+ * The `download` option makes the response carry Content-Disposition:
+ * attachment, so following the link saves the file instead of navigating the
+ * tab to it — which matters because the DAW would be gone if the tab navigated.
+ * The filename is passed so the saved file keeps its real name, not the storage
+ * path's uuid prefix.
+ */
+export async function downloadUrl(storagePath: string, filename: string): Promise<string> {
+  const { data, error } = await supabase.storage
+    .from("idea-drop")
+    .createSignedUrl(storagePath, 3600, { download: filename });
+  if (error) throw new LoadError(error.message, "The file may have been moved or deleted.");
+  return data.signedUrl;
+}
+
+/**
+ * Permanently removes a file from Idea Drop — storage object AND the Run Sheet
+ * row that references it.
+ *
+ * Irreversible: there is no trash. The caller confirms with the user first. The
+ * storage object goes before the row, so a failure can't leave Run Sheet
+ * pointing at bytes that are gone; if the row delete fails, the object is
+ * already removed and the row will 404 on next load, which is the lesser mess.
+ */
+export async function deleteIdeaDropFile(file: SongFile): Promise<void> {
+  const { error: rmErr } = await supabase.storage.from("idea-drop").remove([file.storagePath]);
+  if (rmErr) throw new LoadError(rmErr.message, "The file wasn't deleted. Try again.");
+
+  const { error } = await supabase.from("idea_drop_files").delete().eq("id", file.id);
+  if (error) {
+    throw new LoadError(
+      `The file was removed from storage but Run Sheet kept its row: ${error.message}`,
+      "Tell Shayne — the row needs clearing by hand.",
+    );
+  }
+}
+
+/**
  * Puts a file into the song's Idea Drop, where Run Sheet will show it.
  *
  * The storage path mirrors what Run Sheet builds — scene, then track, then a

@@ -11,6 +11,7 @@
  * pixel per row are visibly wrong by the fourth track.
  */
 import { useState } from "react";
+import { X } from "lucide-react";
 import { font, laneColorFor, radius, size, type Skin } from "./theme";
 import type { LoadedLane } from "./opendaw/loadSong";
 
@@ -32,11 +33,12 @@ export interface TrackListProps {
   onArm: (lane: LoadedLane) => void;
   onSelect: (lane: LoadedLane) => void;
   onRename: (lane: LoadedLane, name: string) => void;
+  onRemove: (lane: LoadedLane) => void;
   selected: string | null;
 }
 
 export function TrackList({
-  lanes, skin, accent, laneHeight, muted, soloed, armed, onMute, onSolo, onArm, onSelect, onRename, selected,
+  lanes, skin, accent, laneHeight, muted, soloed, armed, onMute, onSolo, onArm, onSelect, onRename, onRemove, selected,
 }: TrackListProps) {
   return (
     <div
@@ -81,6 +83,22 @@ export function TrackList({
                 background: laneColorFor(lane.name),
               }}
             />
+
+            {/* Remove the lane. Top-right, out of the way of the controls you
+                use constantly — this one you reach for rarely and on purpose. */}
+            <button
+              onClick={() => onRemove(lane)}
+              title={`Remove ${lane.name}`}
+              aria-label={`Remove ${lane.name}`}
+              style={{
+                position: "absolute", top: 4, right: 4,
+                width: 18, height: 18, display: "grid", placeItems: "center",
+                background: "transparent", color: skin.fgSubtle,
+                border: "none", borderRadius: radius.sm, cursor: "pointer", padding: 0,
+              }}
+            >
+              <X size={13} />
+            </button>
 
             {/*
               Click selects, double-click renames. A stem arrives named after

@@ -10,6 +10,7 @@
  * "This song has a MIDI file I forgot about" is worth knowing, and a list that
  * silently omits things teaches you not to trust it.
  */
+import { Download, Trash2 } from "lucide-react";
 import { font, laneColorFor, radius, size, space, type Skin } from "./theme";
 import { laneName } from "./naming";
 import type { Song, SongFile } from "./runsheet";
@@ -19,6 +20,8 @@ export interface BrowserProps {
   skin: Skin;
   /** fileIds currently open as lanes, so the list can say which are loaded. */
   loaded: ReadonlySet<string>;
+  onDownload: (file: SongFile) => void;
+  onDelete: (file: SongFile) => void;
 }
 
 /** Role order: what you'd reach for first, first. */
@@ -30,7 +33,7 @@ const ROLE_LABELS: Record<string, string> = {
   other: "Other",
 };
 
-export function Browser({ song, skin, loaded }: BrowserProps) {
+export function Browser({ song, skin, loaded, onDownload, onDelete }: BrowserProps) {
   const groups = new Map<string, SongFile[]>();
   for (const file of song.files) {
     const role = ROLE_LABELS[file.role] ? file.role : "other";
@@ -133,6 +136,22 @@ export function Browser({ song, skin, loaded }: BrowserProps) {
                       Open
                     </span>
                   )}
+                  <button
+                    onClick={() => onDownload(file)}
+                    title={`Download ${file.name}`}
+                    aria-label={`Download ${file.name}`}
+                    style={iconBtn(skin)}
+                  >
+                    <Download size={13} />
+                  </button>
+                  <button
+                    onClick={() => onDelete(file)}
+                    title={`Delete ${file.name}`}
+                    aria-label={`Delete ${file.name}`}
+                    style={iconBtn(skin)}
+                  >
+                    <Trash2 size={13} />
+                  </button>
                 </div>
               );
             })}
@@ -146,4 +165,14 @@ export function Browser({ song, skin, loaded }: BrowserProps) {
 function roleRank(role: string): number {
   const i = (ROLE_ORDER as readonly string[]).indexOf(role);
   return i === -1 ? ROLE_ORDER.length : i;
+}
+
+function iconBtn(skin: Skin): React.CSSProperties {
+  return {
+    width: 22, height: 22, flex: "0 0 auto",
+    display: "grid", placeItems: "center",
+    background: "transparent", color: skin.fgSubtle,
+    border: `1px solid ${skin.border}`, borderRadius: radius.sm,
+    cursor: "pointer", padding: 0,
+  };
 }
