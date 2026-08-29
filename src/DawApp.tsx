@@ -29,6 +29,7 @@ import { TrackList } from "./TrackList";
 import { StatusBar } from "./StatusBar";
 import { EffectsRack } from "./EffectsRack";
 import { Browser } from "./Browser";
+import { ChordsPanel } from "./ChordsPanel";
 import { useConsoleLog } from "./useConsoleLog";
 import { collectTakes } from "./opendaw/take";
 import { saveSession } from "./session";
@@ -819,14 +820,25 @@ export default function DawApp() {
             </div>
 
             {song && (
-              <div style={{ width: 250, flex: "0 0 auto", overflow: "auto" }}>
-                <Browser
-                  song={song}
-                  skin={skin}
-                  loaded={new Set(lanes.map((l) => l.fileId))}
-                  onDownload={(file) => void downloadFile(file)}
-                  onDelete={(file) => setPending({ kind: "delete-file", file })}
-                />
+              <div
+                style={{
+                  width: 250, flex: "0 0 auto", minHeight: 0,
+                  display: "flex", flexDirection: "column", gap: 10,
+                }}
+              >
+                <div style={{ flex: "0 0 auto" }}>
+                  <Browser
+                    song={song}
+                    skin={skin}
+                    loaded={new Set(lanes.map((l) => l.fileId))}
+                    onDownload={(file) => void downloadFile(file)}
+                    onDelete={(file) => setPending({ kind: "delete-file", file })}
+                  />
+                </div>
+                {/* Below Idea Drop, filling the column the old form left empty. */}
+                <div style={{ flex: 1, minHeight: 0 }}>
+                  <ChordsPanel skin={skin} text={song.lyricsChords} />
+                </div>
               </div>
             )}
           </div>

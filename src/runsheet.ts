@@ -28,6 +28,13 @@ export interface Song {
   /** Free text in Run Sheet, so it may be absent or nonsense. */
   bpm: string | null;
   key: string | null;
+  /**
+   * The song's lyrics and chords, as written in Run Sheet's `lyrics_chords`
+   * field — one free-text block, chords and words together the way a musician
+   * lays them out. Empty string when nothing has been written. Shown read-only:
+   * Run Sheet owns this text, and two apps editing one field would fight.
+   */
+  lyricsChords: string;
   files: SongFile[];
 }
 
@@ -42,7 +49,7 @@ export class LoadError extends Error {
 export async function loadSong(sceneId: string, trackId: string): Promise<Song> {
   const { data: track, error: trackErr } = await supabase
     .from("tracks")
-    .select("id, scene_id, name, bpm, key, scenes(name)")
+    .select("id, scene_id, name, bpm, key, lyrics_chords, scenes(name)")
     .eq("id", trackId)
     .eq("scene_id", sceneId)
     .maybeSingle();
@@ -78,6 +85,7 @@ export async function loadSong(sceneId: string, trackId: string): Promise<Song> 
     sceneName: scene?.name ?? "",
     bpm: track.bpm,
     key: track.key,
+    lyricsChords: (track.lyrics_chords as string | null) ?? "",
     files: (files ?? [])
       // External links have no storage path and can't be decoded.
       .filter((f) => Boolean(f.storage_path))
