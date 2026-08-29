@@ -231,32 +231,28 @@ function Strip({
       </div>
 
       {/*
-        Pan sits on one line with its readout beside it. Full width with the
-        label underneath read as a second fader at a glance, which is the one
-        mistake a mixer strip must not make.
+        The pan row is one fixed-height slot in every strip, so the fader below
+        starts at the same y everywhere. A channel puts its pan control here;
+        master has nothing to pan and leaves it empty — but the SAME height, or
+        the faders don't line up down the row (the channel faders sat above the
+        master's before this, because a bare range input is shorter than this
+        row). Pan on one line, its value in the tooltip: a label beside or below
+        it reads as a second fader at a glance, the one mistake a strip mustn't
+        make.
       */}
-      {/*
-        Master gets an empty row of the same height rather than a pan control.
-        There is nothing to pan at the output, but a strip that is one control
-        shorter puts its fader at a different height from every other strip,
-        and a mixer whose faders don't line up is unreadable at a glance.
-      */}
-      {isMaster && <div style={{ height: 20, width: "100%" }} />}
-
-      {!isMaster && (
-        <input
-          type="range"
-          min={-1} max={1} step={0.01}
-          value={panning}
-          onChange={(e) => write(() => unit.panning.setValue(Number(e.target.value)))}
-          onDoubleClick={() => write(() => unit.panning.setValue(0))}
-          // The value lives in the tooltip rather than beside the slider: a
-          // label on one side pushed the control off-centre, and every other
-          // control in the strip is centred.
-          title={`Pan ${panLabel(panning)} — double-click to centre`}
-          style={{ width: "100%", height: 3, accentColor: skin.fgMuted }}
-        />
-      )}
+      <div style={{ height: 20, width: "100%", display: "flex", alignItems: "center" }}>
+        {!isMaster && (
+          <input
+            type="range"
+            min={-1} max={1} step={0.01}
+            value={panning}
+            onChange={(e) => write(() => unit.panning.setValue(Number(e.target.value)))}
+            onDoubleClick={() => write(() => unit.panning.setValue(0))}
+            title={`Pan ${panLabel(panning)} — double-click to centre`}
+            style={{ width: "100%", height: 3, margin: 0, accentColor: skin.fgMuted }}
+          />
+        )}
+      </div>
 
       {/*
         A vertical fader, via a rotated range input.
