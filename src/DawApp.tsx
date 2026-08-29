@@ -553,6 +553,69 @@ export default function DawApp() {
   );
 
   /*
+   * Keyboard shortcuts, DAW-standard where there is a standard.
+   *
+   *   space      play / stop (stops a take too)
+   *   R          record (again to stop)
+   *   [ ]        zoom out / in
+   *   ; '        shorter / taller lanes
+   *   1–9        select that track
+   *
+   * Ignored while typing in a field, so renaming a track or a marker types
+   * letters rather than firing transport. No modifier combos — those belong to
+   * the browser.
+   */
+  useEffect(() => {
+    if (stage.name !== "loaded") return;
+    const onKey = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement | null;
+      if (
+        t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT" || t.isContentEditable)
+      ) return;
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+
+      const active = transport.isPlaying || transport.isRecording || transport.isCountingIn || isRecording;
+      switch (e.key) {
+        case " ":
+          e.preventDefault();
+          if (active) stopAll();
+          else transport.play();
+          return;
+        case "r": case "R":
+          e.preventDefault();
+          if (transport.isRecording || transport.isCountingIn || isRecording) void stopRecord();
+          else void record();
+          return;
+        case "]":
+          e.preventDefault();
+          setZoom((z) => Math.min(64, z * 2));
+          return;
+        case "[":
+          e.preventDefault();
+          setZoom((z) => { const n = Math.max(1, z / 2); if (n === 1) setScroll(0); return n; });
+          return;
+        case "'":
+          e.preventDefault();
+          setLook({ laneHeight: look.laneHeight + 12 }); // sanitizeLook clamps
+          return;
+        case ";":
+          e.preventDefault();
+          setLook({ laneHeight: look.laneHeight - 12 });
+          return;
+      }
+      if (e.key >= "1" && e.key <= "9") {
+        const idx = Number(e.key) - 1;
+        if (idx < lanes.length) {
+          e.preventDefault();
+          setSelected(lanes[idx]);
+        }
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [stage.name, transport, isRecording, record, stopRecord, stopAll, lanes, look, setLook]);
+
+  /*
    * Track and file management: remove a lane, download a take, delete a file.
    *
    * The two that lose something — removing a lane, deleting a file — go through
