@@ -49,7 +49,6 @@ export function Browser({ song, skin, loaded }: BrowserProps) {
         background: skin.surface,
         border: `1px solid ${skin.border}`,
         borderRadius: radius.md,
-        marginTop: space[4],
         overflow: "hidden",
       }}
     >

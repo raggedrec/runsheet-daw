@@ -92,7 +92,6 @@ export function EffectsRack({ project, unit, trackName, skin, accent, revision, 
         background: skin.surface,
         border: `1px solid ${skin.border}`,
         borderRadius: radius.md,
-        marginTop: space[4],
         overflow: "hidden",
       }}
     >

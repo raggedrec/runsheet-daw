@@ -45,7 +45,6 @@ export function Mixer({ project, lanes, skin, accent, revision, onChanged }: Mix
         background: skin.surface,
         border: `1px solid ${skin.border}`,
         borderRadius: radius.md,
-        marginTop: space[4],
         overflow: "hidden",
       }}
     >

@@ -431,8 +431,30 @@ export default function DawApp() {
   }, [unsaved]);
 
   return (
-    <main style={{ ...S.page, color: skin.fg, maxWidth: 1180 }}>
-      <header style={S.header}>
+    <main
+      style={
+        stage.name === "loaded"
+          ? {
+              /*
+               * A session fills the window. Everything a DAW needs at once —
+               * tracks, timeline, browser, mixer, effects — has to be visible
+               * without scrolling, or the answer to "why can't I hear the
+               * vocal" is three scroll positions away.
+               */
+              color: skin.fg,
+              height: "100vh",
+              display: "flex",
+              flexDirection: "column",
+              padding: 12,
+              gap: 10,
+              boxSizing: "border-box",
+              overflow: "hidden",
+              font: `13px/1.5 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif`,
+            }
+          : { ...S.page, color: skin.fg, maxWidth: 1180 }
+      }
+    >
+      {stage.name !== "loaded" && <header style={S.header}>
         <div>
           <h1 style={S.h1}>{song?.name ?? "Run Sheet — DAW"}</h1>
           <p style={S.sub}>
@@ -443,7 +465,7 @@ export default function DawApp() {
               : "Loading…"}
           </p>
         </div>
-      </header>
+      </header>}
 
       {stage.name === "booting" && <p style={S.note}>Starting…</p>}
 
@@ -584,72 +606,90 @@ export default function DawApp() {
             </section>
           )}
 
-          <div
-            style={{
-              display: "flex",
-              background: skin.surface,
-              border: `1px solid ${skin.border}`,
-              borderRadius: 6,
-              overflow: "hidden",
-            }}
-          >
-            <TrackList
-              lanes={lanes}
-              skin={skin}
-              accent={accent.solid}
-              laneHeight={look.laneHeight}
-              muted={audible.muted}
-              soloed={audible.soloed}
-              armed={armedLane}
-              onMute={toggleMute}
-              onSolo={toggleSolo}
-              onArm={toggleArm}
-              onSelect={setSelected}
-              selected={selected?.fileId ?? null}
-            />
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <Timeline
+          {/*
+            Row: tracks + timeline take the space, the browser is a fixed
+            column beside them. Fixed because a file list that grows and
+            shrinks with the window moves the thing you were about to click.
+          */}
+          <div style={{ display: "flex", gap: 10, flex: 1, minHeight: 0 }}>
+            <div
+              style={{
+                display: "flex",
+                flex: 1,
+                minWidth: 0,
+                background: skin.surface,
+                border: `1px solid ${skin.border}`,
+                borderRadius: 6,
+                overflow: "auto",
+              }}
+            >
+              <TrackList
                 lanes={lanes}
                 skin={skin}
                 accent={accent.solid}
                 laneHeight={look.laneHeight}
-                position={seconds}
-                duration={duration}
-                bpm={song?.bpm ? tempoOf(song.bpm) : null}
                 muted={audible.muted}
                 soloed={audible.soloed}
-                onScrub={transport.seek}
-                gutter={0}
+                armed={armedLane}
+                onMute={toggleMute}
+                onSolo={toggleSolo}
+                onArm={toggleArm}
+                onSelect={setSelected}
+                selected={selected?.fileId ?? null}
+              />
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <Timeline
+                  lanes={lanes}
+                  skin={skin}
+                  accent={accent.solid}
+                  laneHeight={look.laneHeight}
+                  position={seconds}
+                  duration={duration}
+                  bpm={song?.bpm ? tempoOf(song.bpm) : null}
+                  muted={audible.muted}
+                  soloed={audible.soloed}
+                  onScrub={transport.seek}
+                  gutter={0}
+                />
+              </div>
+            </div>
+
+            {song && (
+              <div style={{ width: 250, flex: "0 0 auto", overflow: "auto" }}>
+                <Browser
+                  song={song}
+                  skin={skin}
+                  loaded={new Set(lanes.map((l) => l.fileId))}
+                />
+              </div>
+            )}
+          </div>
+
+          {/* Row: mixer takes the space, effects sits beside it at a fixed
+              width, as on a desk where the rack is at the end. */}
+          <div style={{ display: "flex", gap: 10, flex: "0 0 auto", minHeight: 0 }}>
+            <div style={{ flex: 1, minWidth: 0, overflow: "auto" }}>
+              <Mixer
+                project={session.project}
+                lanes={lanes}
+                skin={skin}
+                accent={accent.solid}
+                revision={mixRevision}
+                onChanged={bump}
+              />
+            </div>
+            <div style={{ width: 250, flex: "0 0 auto", overflow: "auto" }}>
+              <EffectsRack
+                project={session.project}
+                unit={selected?.unit ?? null}
+                trackName={selected?.name ?? null}
+                skin={skin}
+                accent={accent.solid}
+                revision={mixRevision}
+                onChanged={bump}
               />
             </div>
           </div>
-
-          <Mixer
-            project={session.project}
-            lanes={lanes}
-            skin={skin}
-            accent={accent.solid}
-            revision={mixRevision}
-            onChanged={bump}
-          />
-
-          <EffectsRack
-            project={session.project}
-            unit={selected?.unit ?? null}
-            trackName={selected?.name ?? null}
-            skin={skin}
-            accent={accent.solid}
-            revision={mixRevision}
-            onChanged={bump}
-          />
-
-          {song && (
-            <Browser
-              song={song}
-              skin={skin}
-              loaded={new Set(lanes.map((l) => l.fileId))}
-            />
-          )}
 
           <StatusBar
             skin={skin}
