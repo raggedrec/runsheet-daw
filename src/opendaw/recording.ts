@@ -232,6 +232,15 @@ export async function startRecording(project: Project, countIn: boolean): Promis
 
   // 1. Roll the transport, unless a count-in is meant to start it.
   if (!countIn && !engine.isPlaying.getValue()) {
+    /*
+     * Position before play — the same invariant useTransport.play relies on:
+     * engine.play() on its own rolls the transport but produces silence, and
+     * in this build can fail to take at all, until a position is set. Re-setting
+     * the one the engine already holds costs nothing. This path called play()
+     * without it, which is the plainest suspect for isRecording staying false
+     * while the Play button worked: the button set a position, this did not.
+     */
+    engine.setPosition(engine.position.getValue());
     engine.play();
     const playBy = Date.now() + 2000;
     while (Date.now() < playBy && !engine.isPlaying.getValue()) {
