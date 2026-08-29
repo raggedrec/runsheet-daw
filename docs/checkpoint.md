@@ -26,11 +26,19 @@ Written so the next session doesn't rediscover any of this. Read this before tou
 ## Doesn't work / not built
 
 - **RECORDING.** Still the open problem. See below.
-- **Session reload.** `loadSession` / `sessionExists` exist in `src/session.ts` and are unused.
-  Needs `createSession` refactored to expose its `ProjectEnv` for `Project.load(env, buffer)`,
-  and lanes derived from the project rather than Run Sheet's file list:
-  `project.rootBoxAdapter.audioUnits.adapters()` → `.tracks` → `TrackRegions.adapters` →
-  region `.file` → AudioFileBox → `address.uuid` → `SampleStorage.get().load(uuid)`.
+- **Session reload — wired, RUNTIME-UNVERIFIED.** The path is built but has never been run
+  (localhost can't get past sign-in). `session.ts` now shares one `buildProjectEnv` between
+  `createSession` (`Project.new`) and `loadSessionProject` (`Project.loadAnyVersion`, which runs
+  version migrations). `lanesFromProject` in `loadSong.ts` reads lanes back out of the graph —
+  `rootBoxAdapter.audioUnits.adapters()` → `unit.tracks.values()` → `track.regions.adapters
+  .values()` → `region.isAudioRegion()` → `region.file` (`AudioFileBoxAdapter`: `.uuid`,
+  `.endInSeconds`, `.peaks`). `DawApp.open` tries the saved session first and falls back to the
+  fresh stem load if none exists or it yields no drawable lanes. **Verify the reopen → playback
+  loop on the Mac with the engine log before trusting it.**
+  - Remaining gap: on a browser that never imported the stems, SampleStorage is empty, so the
+    regions have no peaks and `lanesFromProject` skips them (the app then rebuilds from stems).
+    Re-importing missing samples on reopen — matching saved region uuids back to Run Sheet files —
+    is the next piece.
 - **Mixer meters.** `LiveStreamBroadcaster` (lib-fusion) is the SENDING side, in the worklet.
   Reading it needs a receiver plus the address that carries peak data. Not documented, not
   guessed at. Deliberately deferred.
@@ -57,8 +65,14 @@ side builds correctly, and `isRecording` stayed false. The current code therefor
 waits for `isPlaying`, and only then arms — the reverse of four earlier attempts, all of which
 armed first and tried to start the transport afterwards.
 
-**This has not been tested since that change.** It is the single next thing to try, and the
-engine log will say which step failed if it still doesn't work.
+**New suspect found and fixed (RUNTIME-UNVERIFIED).** `startRecording` called `engine.play()`
+directly, without the `engine.setPosition(...)` that `useTransport.play` sets before every Play —
+whose own comment says play() "produces silence until something sets a position," and trap #2/#5
+below say the same. So the record path was rolling the transport the one way the app already knew
+does not take, while the Play button (which sets a position) worked. `recording.ts` now sets the
+current position before `play()`. This is the "two places doing one job, the copy forgot a step"
+shape again. **Untested — try recording and read the engine log; if isRecording still stays false,
+this wasn't it and the count-in path is next.**
 
 **The engine log panel in the app is the tool for this.** It captures openDAW's console output
 and unhandled rejections. Six fixes were shipped before it existed, all guesses, all wrong.
@@ -96,10 +110,12 @@ Do not debug this without reading it.
 
 ## Licensing
 
-Every `@opendaw/*` package on npm declares **LGPL-3.0-or-later**, not AGPL. The AGPL applies to
-the openDAW *studio app* repo, not the SDK. This app was split out and published partly on the
-belief the SDK was AGPL. **Read the shipped LICENSE files in `node_modules/@opendaw/*` before
-acting on it** — if LGPL holds, the DAW could live inside Run Sheet privately.
+**Resolved.** Confirmed from `node_modules/@opendaw/*/package.json`: every `@opendaw/*` package
+declares **LGPL-3.0-or-later** (nam-wasm is MIT). The AGPL applies to the openDAW *studio app*,
+not the SDK, so LGPL did not force AGPL here — but this app is licensed **AGPL-3.0-or-later by
+choice**. §13 is discharged by the footer source link in `src/DawApp.tsx` pointing at the public
+repo `github.com/raggedrec/runsheet-daw` (verified public, HTTP 200). Keep that link valid or the
+app is out of compliance the moment it is network-reachable.
 
 - `lucide-react` — ISC. In use. No constraints.
 - `fontaudio` — MIT. Safe if wanted for audio-specific glyphs.
