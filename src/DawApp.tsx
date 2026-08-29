@@ -22,6 +22,8 @@ import { StartScreen } from "./StartScreen";
 import { Mixer, audibility } from "./Mixer";
 import { TrackList } from "./TrackList";
 import { StatusBar } from "./StatusBar";
+import { EffectsRack } from "./EffectsRack";
+import { Browser } from "./Browser";
 import { useConsoleLog } from "./useConsoleLog";
 import { collectTakes } from "./opendaw/take";
 import { saveSession } from "./session";
@@ -76,6 +78,22 @@ export default function DawApp() {
    */
   const logs = useConsoleLog(true);
   const [showLog, setShowLog] = useState(false);
+  /** The track whose effects chain is on screen. */
+  const [selected, setSelected] = useState<LoadedLane | null>(null);
+
+  /*
+   * The log opens itself the first time something goes wrong, and stays shut
+   * otherwise. A diagnostic panel permanently expanded is noise; one that
+   * appears exactly when there is something to read is a colleague.
+   */
+  const problems = logs.filter((l) => l.level === "error" || l.level === "warn").length;
+  const [autoOpened, setAutoOpened] = useState(false);
+  useEffect(() => {
+    if (problems > 0 && !autoOpened) {
+      setShowLog(true);
+      setAutoOpened(true);
+    }
+  }, [problems, autoOpened]);
   const skin = skins[look.skin];
   const accent = accents[look.accent];
 
@@ -586,6 +604,8 @@ export default function DawApp() {
               onMute={toggleMute}
               onSolo={toggleSolo}
               onArm={toggleArm}
+              onSelect={setSelected}
+              selected={selected?.fileId ?? null}
             />
             <div style={{ flex: 1, minWidth: 0 }}>
               <Timeline
@@ -612,6 +632,24 @@ export default function DawApp() {
             revision={mixRevision}
             onChanged={bump}
           />
+
+          <EffectsRack
+            project={session.project}
+            unit={selected?.unit ?? null}
+            trackName={selected?.name ?? null}
+            skin={skin}
+            accent={accent.solid}
+            revision={mixRevision}
+            onChanged={bump}
+          />
+
+          {song && (
+            <Browser
+              song={song}
+              skin={skin}
+              loaded={new Set(lanes.map((l) => l.fileId))}
+            />
+          )}
 
           <StatusBar
             skin={skin}

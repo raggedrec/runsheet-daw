@@ -29,10 +29,12 @@ export interface TrackListProps {
   onMute: (lane: LoadedLane) => void;
   onSolo: (lane: LoadedLane) => void;
   onArm: (lane: LoadedLane) => void;
+  onSelect: (lane: LoadedLane) => void;
+  selected: string | null;
 }
 
 export function TrackList({
-  lanes, skin, accent, laneHeight, muted, soloed, armed, onMute, onSolo, onArm,
+  lanes, skin, accent, laneHeight, muted, soloed, armed, onMute, onSolo, onArm, onSelect, selected,
 }: TrackListProps) {
   return (
     <div
@@ -64,6 +66,7 @@ export function TrackList({
               gap: 6,
               padding: "0 10px 0 0",
               borderBottom: `1px solid ${skin.laneLine}`,
+              background: selected === lane.fileId ? skin.surfaceSunken : "transparent",
               position: "relative",
               boxSizing: "border-box",
             }}
@@ -77,18 +80,26 @@ export function TrackList({
               }}
             />
 
-            <span
+            {/* Clicking the name selects the track, which is what the effects
+                rack follows. A whole-row click would fight the M/S/R buttons. */}
+            <button
+              onClick={() => onSelect(lane)}
+              title={lane.name}
               style={{
                 paddingLeft: 14,
+                textAlign: "left",
+                background: "transparent",
+                border: "none",
+                cursor: "pointer",
+                padding: "0 0 0 14px",
                 font: `600 ${size.sm}px ${font.body}`,
                 letterSpacing: ".05em",
                 color: audible ? skin.fg : skin.fgSubtle,
                 overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
               }}
-              title={lane.name}
             >
               {lane.name.toUpperCase()}
-            </span>
+            </button>
 
             <div style={{ display: "flex", gap: 4, paddingLeft: 14 }}>
               <Toggle

@@ -168,8 +168,13 @@ function Strip({
         )}
       </div>
 
+      {/*
+        Pan sits on one line with its readout beside it. Full width with the
+        label underneath read as a second fader at a glance, which is the one
+        mistake a mixer strip must not make.
+      */}
       {!isMaster && (
-        <label style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 2, width: "100%" }}>
+        <label style={{ display: "flex", alignItems: "center", gap: 6, width: "100%" }}>
           <input
             type="range"
             min={-1} max={1} step={0.01}
@@ -177,9 +182,14 @@ function Strip({
             onChange={(e) => write(() => unit.panning.setValue(Number(e.target.value)))}
             onDoubleClick={() => write(() => unit.panning.setValue(0))}
             title="Pan — double-click to centre"
-            style={{ width: "100%", accentColor: skin.fgMuted }}
+            style={{ flex: 1, minWidth: 0, height: 3, accentColor: skin.fgMuted }}
           />
-          <span style={{ font: `500 ${size.xs}px ${font.mono}`, color: skin.fgSubtle }}>
+          <span
+            style={{
+              font: `500 ${size.xs}px ${font.mono}`, color: skin.fgSubtle,
+              width: 26, textAlign: "right", flex: "0 0 auto",
+            }}
+          >
             {panLabel(panning)}
           </span>
         </label>
