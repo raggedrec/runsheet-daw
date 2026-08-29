@@ -12,10 +12,9 @@ import { createSession, type DawSession } from "./opendaw/session";
 import { loadSongIntoProject, tempoOf, type LoadedLane, type LoadProgress } from "./opendaw/loadSong";
 import { loadSong, playableFiles, LoadError, type Song } from "./runsheet";
 import { isConfigured, requestedSong, supabase } from "./supabase";
-import { useObservable } from "./useObservable";
 import { S } from "./styles";
 import { Timeline } from "./Timeline";
-import { Transport } from "./Transport";
+import { TransportBar } from "./TransportBar";
 import { useLook } from "./useLook";
 import { accents, skins } from "./theme";
 import { RecordPanel } from "./RecordPanel";
@@ -25,7 +24,7 @@ import { useConsoleLog } from "./useConsoleLog";
 import { collectTakes } from "./opendaw/take";
 import { saveSession } from "./session";
 import { uploadToIdeaDrop } from "./runsheet";
-import { useTransportClock } from "./useTransportClock";
+import { useTransport } from "./useTransport";
 import {
   addRecordTrack, armTrack, listInputs, RecordingError,
   startRecording as beginRecording, stopRecording as endRecording,
@@ -189,63 +188,17 @@ export default function DawApp() {
   /* eslint-disable-next-line react-hooks/exhaustive-deps -- mixRevision is the trigger */
   const audible = useMemo(() => audibility(lanes), [lanes, mixRevision]);
 
-  const engine = session?.project.engine ?? null;
 
   /*
-   * Two sources of truth about whether the transport is rolling, deliberately.
+   * One owner for the transport. See useTransport.
    *
-   * `engine.isPlaying` is the engine's own answer and the one to trust — but
-   * the position it publishes alongside it does not advance in this build, so
-   * the clock can't be driven from it. `rolling` is what this app knows it
-   * asked for. The clock follows `rolling`; the button follows the engine when
-   * the engine is talking and falls back to `rolling` when it isn't.
+   * Everything shown — playing, recording, counting in, position — is the
+   * engine's own answer. This app no longer keeps a parallel idea of whether
+   * the song is moving, which is what let a clock tick convincingly over a
+   * stopped engine and hide a broken record path for most of a day.
    */
-  const [rolling, setRolling] = useState(false);
-  const enginePlaying = useObservable(engine?.isPlaying ?? null, false);
-  const isPlaying = enginePlaying || rolling;
-  const clock = useTransportClock(session?.audioContext ?? null, rolling, duration);
-  const seconds = clock.seconds;
-
-  const playStop = useCallback(() => {
-    if (!session) return;
-    if (rolling) {
-      session.project.engine.stop();
-      clock.stop(clock.seconds);
-      setRolling(false);
-    } else {
-      /*
-       * Position before play, always.
-       *
-       * play() on its own rolls the transport but produces silence until
-       * something sets a position — which is why clicking the timeline
-       * "fixed" it. Setting the position the playhead is already at costs
-       * nothing and makes pressing Play behave the same as clicking.
-       */
-      session.project.engine.setPosition(
-        session.project.tempoMap.secondsToPPQN(clock.seconds),
-      );
-      session.project.engine.play();
-      clock.start(clock.seconds);
-      setRolling(true);
-    }
-  }, [session, rolling, clock]);
-
-  const rewind = useCallback(() => {
-    if (!session) return;
-    session.project.engine.setPosition(0);
-    clock.seek(0);
-  }, [session, clock]);
-
-  const scrub = useCallback(
-    (to: number) => {
-      if (!session) return;
-      // The engine positions in musical time, so a scrub in seconds goes back
-      // through the tempo map rather than being scaled.
-      session.project.engine.setPosition(session.project.tempoMap.secondsToPPQN(to));
-      clock.seek(to);
-    },
-    [session, clock],
-  );
+  const transport = useTransport(session?.project ?? null, session?.audioContext ?? null);
+  const seconds = transport.position;
 
   /** Add a track, ask for the microphone, arm it. One button, three steps. */
   const addTrack = useCallback(
@@ -288,9 +241,6 @@ export default function DawApp() {
     setBusy(true);
     setRecError(null);
     try {
-      session.project.engine.setPosition(
-        session.project.tempoMap.secondsToPPQN(clock.seconds),
-      );
       await beginRecording(session.project, countIn);
 
       /*
@@ -299,20 +249,6 @@ export default function DawApp() {
        * see that from the outside — the on-screen clock is driven from the
        * AudioContext, so it counts up whether or not the transport moves.
        */
-      window.setTimeout(() => {
-        const e = session.project.engine;
-        console.debug(
-          "[RunSheet] engine after record:",
-          JSON.stringify({
-            isPlaying: e.isPlaying.getValue(),
-            isRecording: e.isRecording.getValue(),
-            isCountingIn: e.isCountingIn.getValue(),
-            position: e.position.getValue(),
-          }),
-        );
-      }, 800);
-      clock.start(clock.seconds);
-      setRolling(true);
       setIsRecording(true);
     } catch (err) {
       setRecError(
@@ -323,7 +259,7 @@ export default function DawApp() {
     } finally {
       setBusy(false);
     }
-  }, [session, countIn, clock]);
+  }, [session, countIn]);
 
   const stopRecord = useCallback(async () => {
     if (!session || !recordTrack || !song) return;
@@ -336,14 +272,11 @@ export default function DawApp() {
      * ours.
      */
     setIsRecording(false);
-    setRolling(false);
     // Waits for openDAW to finalise the take. It does that asynchronously,
     // from a subscriber on isRecording — reading the regions before that has
     // happened is what produced "Nothing was recorded" on good takes.
     await endRecording(session.project, recordTrack.capture);
     session.project.engine.stop();
-    clock.stop(clock.seconds);
-    setRolling(false);
     setIsRecording(false);
 
     /*
@@ -397,7 +330,7 @@ export default function DawApp() {
             : "The recording is still here — don't close the tab.",
       });
     }
-  }, [session, recordTrack, song, clock]);
+  }, [session, recordTrack, song, transport]);
 
   /** Saves the whole session: tracks, faders, pans, effects, arrangement. */
   const save = useCallback(async () => {
@@ -482,18 +415,27 @@ export default function DawApp() {
 
       {stage.name === "loaded" && session && (
         <>
-          <Transport
+          <TransportBar
             skin={skin}
             accent={accent.solid}
             accentFg={accent.fg}
-            isPlaying={isPlaying}
             position={seconds}
             duration={duration}
             bpm={song?.bpm ? tempoOf(song.bpm) : null}
+            songKey={song?.key ?? null}
+            isPlaying={transport.isPlaying}
+            isRecording={transport.isRecording || isRecording}
+            isCountingIn={transport.isCountingIn}
+            armedTrackName={recordTrack?.name ?? null}
+            countIn={countIn}
+            busy={busy}
             look={look}
             onLook={setLook}
-            onPlayStop={playStop}
-            onRewind={rewind}
+            onPlayStop={transport.toggle}
+            onRewind={transport.rewind}
+            onRecord={() => void record()}
+            onStopRecord={() => void stopRecord()}
+            onCountIn={setCountIn}
             saveState={saveState}
             onSave={() => void save()}
           />
@@ -583,7 +525,7 @@ export default function DawApp() {
             bpm={song?.bpm ? tempoOf(song.bpm) : null}
             muted={audible.muted}
             soloed={audible.soloed}
-            onScrub={scrub}
+            onScrub={transport.seek}
           />
 
           <Mixer

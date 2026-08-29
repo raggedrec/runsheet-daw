@@ -17,3 +17,4 @@ public/opendaw-wasm/
 
 # tsc -b build artifact
 *.tsbuildinfo
+scripts/unit/bundle.mjs

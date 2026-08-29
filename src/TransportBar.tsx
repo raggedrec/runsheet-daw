@@ -1,0 +1,271 @@
+/**
+ * One control cluster: rewind, play, record, and what the engine says.
+ *
+ * Record used to live in its own panel, several inches from Play, driving a
+ * separate code path. Both of those were mistakes — the second one caused
+ * real bugs, because "start playing" and "start recording while playing" were
+ * written as if they were unrelated operations. They sit together here for the
+ * same reason they sit together on every desk ever built.
+ *
+ * Everything displayed comes from the engine via useTransport. Nothing here
+ * keeps its own idea of whether the song is moving.
+ */
+import { accents, font, radius, size, space, LANE_HEIGHT, type AccentName, type Look, type Skin } from "./theme";
+
+export interface TransportBarProps {
+  skin: Skin;
+  accent: string;
+  accentFg: string;
+  position: number;
+  duration: number;
+  bpm: number | null;
+  songKey: string | null;
+  isPlaying: boolean;
+  isRecording: boolean;
+  isCountingIn: boolean;
+  /** Null when no track is armed — Record is then unavailable, with a reason. */
+  armedTrackName: string | null;
+  countIn: boolean;
+  busy: boolean;
+  look: Look;
+  onLook: (patch: Partial<Look>) => void;
+  onPlayStop: () => void;
+  onRewind: () => void;
+  onRecord: () => void;
+  onStopRecord: () => void;
+  onCountIn: (on: boolean) => void;
+  saveState: "idle" | "saving" | "saved" | "failed";
+  onSave: () => void;
+}
+
+export function TransportBar(p: TransportBarProps) {
+  const { skin, accent, accentFg } = p;
+
+  const square: React.CSSProperties = {
+    width: 34, height: 34, display: "grid", placeItems: "center",
+    background: "transparent", color: skin.fg,
+    border: `1px solid ${skin.border}`, borderRadius: radius.md, cursor: "pointer",
+  };
+
+  const recordable = p.armedTrackName !== null && !p.busy;
+
+  return (
+    <div
+      style={{
+        display: "flex", alignItems: "center", gap: space[3],
+        padding: `${space[3]}px ${space[4]}px`,
+        background: skin.surface,
+        border: `1px solid ${skin.border}`,
+        borderRadius: radius.md,
+        marginBottom: space[4],
+        flexWrap: "wrap",
+      }}
+    >
+      <button onClick={p.onRewind} title="Back to start" style={square} aria-label="Back to start">
+        <Rewind />
+      </button>
+
+      <button
+        onClick={p.onPlayStop}
+        aria-label={p.isPlaying ? "Stop" : "Play"}
+        style={{
+          width: 46, height: 46, borderRadius: radius.pill,
+          display: "grid", placeItems: "center",
+          background: accent, color: accentFg, border: "none", cursor: "pointer",
+        }}
+      >
+        {p.isPlaying ? <StopIcon /> : <PlayIcon />}
+      </button>
+
+      {/*
+        Record sits next to Play because it is the same gesture with one more
+        thing switched on: the song rolls either way.
+      */}
+      <button
+        onClick={p.isRecording || p.isCountingIn ? p.onStopRecord : p.onRecord}
+        disabled={!recordable && !p.isRecording && !p.isCountingIn}
+        title={p.armedTrackName ? `Record onto ${p.armedTrackName}` : "Add a track to record onto"}
+        aria-label={p.isRecording ? "Stop recording" : "Record"}
+        style={{
+          width: 46, height: 46, borderRadius: radius.pill,
+          display: "grid", placeItems: "center",
+          background: p.isRecording || p.isCountingIn ? "#8E2C24" : "#C0453B",
+          border: "none",
+          cursor: recordable || p.isRecording ? "pointer" : "default",
+          opacity: recordable || p.isRecording || p.isCountingIn ? 1 : 0.35,
+        }}
+      >
+        <span
+          style={{
+            width: 14, height: 14, borderRadius: radius.pill, background: "#fff",
+            // Blinks only while something is actually happening. A blinking
+            // dot on an idle button is decoration pretending to be status.
+            animation: p.isRecording || p.isCountingIn ? "rec-blink 1s steps(2,start) infinite" : undefined,
+          }}
+        />
+      </button>
+
+      <label
+        style={{
+          display: "flex", alignItems: "center", gap: 5, height: 34,
+          font: `${size.sm}px ${font.body}`, color: skin.fgMuted, cursor: "pointer",
+        }}
+        title="Four beats before recording starts"
+      >
+        <input
+          type="checkbox"
+          checked={p.countIn}
+          disabled={p.isRecording || p.isCountingIn}
+          onChange={(e) => p.onCountIn(e.target.checked)}
+        />
+        Count-in
+      </label>
+
+      {/* Tabular figures, or the whole bar shifts once a second as digits
+          change width. */}
+      <div style={{ display: "flex", alignItems: "baseline", gap: space[3], marginLeft: space[2] }}>
+        <span style={{ font: `600 ${size.lg}px ${font.mono}`, fontVariantNumeric: "tabular-nums", color: skin.fg }}>
+          {formatTime(p.position)}
+        </span>
+        <span style={{ font: `500 ${size.xs}px ${font.mono}`, color: skin.fgSubtle, fontVariantNumeric: "tabular-nums" }}>
+          / {formatTime(p.duration)}
+        </span>
+        {p.bpm && (
+          <span
+            style={{
+              display: "flex", alignItems: "baseline", gap: 5,
+              paddingLeft: space[3], borderLeft: `1px solid ${skin.border}`,
+            }}
+          >
+            <span style={{ font: `600 ${size.xs}px ${font.body}`, letterSpacing: ".08em", color: skin.fgSubtle }}>
+              BAR
+            </span>
+            <span
+              style={{
+                font: `600 ${size.sm}px ${font.mono}`, color: skin.fgMuted,
+                fontVariantNumeric: "tabular-nums",
+              }}
+            >
+              {formatBars(p.position, p.bpm)}
+            </span>
+          </span>
+        )}
+      </div>
+
+      <span style={{ font: `500 ${size.xs}px ${font.body}`, letterSpacing: ".08em", color: skin.fgSubtle }}>
+        {[p.bpm ? `${p.bpm} BPM` : null, "4/4", p.songKey].filter(Boolean).join(" · ")}
+      </span>
+
+      <div style={{ flex: 1 }} />
+
+      <button
+        onClick={p.onSave}
+        disabled={p.saveState === "saving"}
+        title="Save this session so the mix is here next time"
+        style={{
+          height: 32, paddingInline: 12,
+          font: `600 ${size.xs}px ${font.body}`,
+          letterSpacing: ".08em", textTransform: "uppercase",
+          color: p.saveState === "failed" ? "#C0453B" : skin.fg,
+          background: "transparent",
+          border: `1px solid ${p.saveState === "failed" ? "#C0453B" : skin.border}`,
+          borderRadius: radius.md,
+          cursor: p.saveState === "saving" ? "default" : "pointer",
+        }}
+      >
+        {p.saveState === "saving" ? "Saving…" : p.saveState === "saved" ? "Saved" : p.saveState === "failed" ? "Retry save" : "Save"}
+      </button>
+
+      <LookControls skin={skin} look={p.look} onLook={p.onLook} />
+
+      <style>{`@keyframes rec-blink { to { opacity: .25 } }`}</style>
+    </div>
+  );
+}
+
+function LookControls({ skin, look, onLook }: { skin: Skin; look: Look; onLook: (p: Partial<Look>) => void }) {
+  const chip = (active: boolean): React.CSSProperties => ({
+    font: `500 ${size.xs}px ${font.body}`,
+    letterSpacing: ".08em", textTransform: "uppercase",
+    padding: "5px 9px", borderRadius: radius.md, cursor: "pointer",
+    border: `1px solid ${active ? skin.borderStrong : skin.border}`,
+    background: active ? skin.bg : "transparent",
+    color: active ? skin.fg : skin.fgSubtle,
+  });
+
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: space[2] }}>
+      <button style={chip(look.skin === "light")} onClick={() => onLook({ skin: "light" })}>Light</button>
+      <button style={chip(look.skin === "dark")} onClick={() => onLook({ skin: "dark" })}>Dark</button>
+
+      <div style={{ display: "flex", gap: 4, marginLeft: space[2] }}>
+        {(Object.keys(accents) as AccentName[]).map((key) => (
+          <button
+            key={key}
+            onClick={() => onLook({ accent: key })}
+            title={accents[key].name}
+            aria-label={accents[key].name}
+            style={{
+              width: 18, height: 18, borderRadius: radius.pill,
+              background: accents[key].solid,
+              border: look.accent === key ? `2px solid ${skin.fg}` : `1px solid ${skin.border}`,
+              cursor: "pointer", padding: 0,
+            }}
+          />
+        ))}
+      </div>
+
+      {/* Labelled, unlike the mystery slider this replaces. */}
+      <label
+        style={{
+          display: "flex", alignItems: "center", gap: 6, marginLeft: space[2],
+          font: `600 ${size.xs}px ${font.body}`, letterSpacing: ".08em",
+          textTransform: "uppercase", color: skin.fgSubtle,
+        }}
+      >
+        Height
+        <input
+          type="range"
+          min={LANE_HEIGHT.min}
+          max={LANE_HEIGHT.max}
+          value={look.laneHeight}
+          onChange={(e) => onLook({ laneHeight: Number(e.target.value) })}
+          style={{ width: 70, accentColor: skin.fgMuted }}
+        />
+      </label>
+    </div>
+  );
+}
+
+const PlayIcon = () => (
+  <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden>
+    <path d="M4 2.5v11l9-5.5-9-5.5Z" />
+  </svg>
+);
+const StopIcon = () => (
+  <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden>
+    <rect x="3" y="3" width="10" height="10" rx="1" />
+  </svg>
+);
+const Rewind = () => (
+  <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden>
+    <path d="M4 3h1.6v10H4V3Zm8.4 0v10l-6.2-5 6.2-5Z" />
+  </svg>
+);
+
+export function formatTime(seconds: number): string {
+  const whole = Math.max(0, Math.floor(seconds));
+  return `${Math.floor(whole / 60)}:${String(whole % 60).padStart(2, "0")}`;
+}
+
+/**
+ * Bar and beat, both counted from one, because musicians do.
+ *
+ * Assumes 4/4 and says so in the bar beside it — Run Sheet has no time
+ * signature field, and pretending to know better would be a lie dressed as a
+ * feature.
+ */
+export function formatBars(seconds: number, bpm: number): string {
+  const beats = Math.max(0, seconds) * (bpm / 60);
+  return `${Math.floor(beats / 4) + 1}|${Math.floor(beats % 4) + 1}`;
+}

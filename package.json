@@ -14,7 +14,8 @@
     "lint": "oxlint src/",
     "sync:wasm": "node scripts/sync-wasm.mjs",
     "audit:ship": "npm audit --omit=dev --audit-level=high",
-    "audit:all": "npm audit"
+    "audit:all": "npm audit",
+    "test": "npx --yes esbuild scripts/unit/entry.ts --bundle --format=esm --platform=node --outfile=scripts/unit/bundle.mjs --log-level=error && node scripts/unit/tests.mjs"
   },
   "dependencies": {
     "@opendaw/studio-core": "^0.2.4",
