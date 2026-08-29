@@ -22,7 +22,8 @@
     "@opendaw/studio-core-wasm": "^0.0.15",
     "@supabase/supabase-js": "^2.112.4",
     "react": "^19.2.8",
-    "react-dom": "^19.2.8"
+    "react-dom": "^19.2.8",
+    "lucide-react": "^1.23.0"
   },
   "devDependencies": {
     "@types/node": "^26.4.0",

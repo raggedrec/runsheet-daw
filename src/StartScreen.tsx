@@ -11,6 +11,7 @@
  * lanes. The old version said "3 files ready" followed by a comma-separated
  * list of filenames, which is a log line, not a screen.
  */
+import { Play } from "lucide-react";
 import { font, laneColorFor, radius, size, space, type Skin } from "./theme";
 import { laneName } from "./opendaw/loadSong";
 import type { Song, SongFile } from "./runsheet";
@@ -122,9 +123,7 @@ export function StartScreen({ skin, accent, accentFg, song, files, onOpen }: Sta
             border: "none", borderRadius: radius.sm, cursor: "pointer",
           }}
         >
-          <svg width="15" height="15" viewBox="0 0 16 16" fill="currentColor" aria-hidden>
-            <path d="M4 2.5v11l9-5.5-9-5.5Z" />
-          </svg>
+          <Play size={15} fill="currentColor" />
           Open the session
         </button>
 

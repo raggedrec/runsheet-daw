@@ -10,6 +10,7 @@
  * Everything displayed comes from the engine via useTransport. Nothing here
  * keeps its own idea of whether the song is moving.
  */
+import { Circle, Play, SkipBack, Square } from "lucide-react";
 import { accents, font, radius, size, space, LANE_HEIGHT, type AccentName, type Look, type Skin } from "./theme";
 
 export interface TransportBarProps {
@@ -62,7 +63,7 @@ export function TransportBar(p: TransportBarProps) {
       }}
     >
       <button onClick={p.onRewind} title="Back to start" style={square} aria-label="Back to start">
-        <Rewind />
+        <SkipBack size={15} fill="currentColor" />
       </button>
 
       <button
@@ -74,7 +75,7 @@ export function TransportBar(p: TransportBarProps) {
           background: accent, color: accentFg, border: "none", cursor: "pointer",
         }}
       >
-        {p.isPlaying ? <StopIcon /> : <PlayIcon />}
+        {p.isPlaying ? <Square size={15} fill="currentColor" /> : <Play size={16} fill="currentColor" />}
       </button>
 
       {/*
@@ -95,11 +96,15 @@ export function TransportBar(p: TransportBarProps) {
           opacity: recordable || p.isRecording || p.isCountingIn ? 1 : 0.35,
         }}
       >
-        <span
+        {/*
+          Blinks only while something is actually happening. A blinking dot on
+          an idle button is decoration pretending to be status.
+        */}
+        <Circle
+          size={15}
+          fill="#fff"
+          color="#fff"
           style={{
-            width: 14, height: 14, borderRadius: radius.pill, background: "#fff",
-            // Blinks only while something is actually happening. A blinking
-            // dot on an idle button is decoration pretending to be status.
             animation: p.isRecording || p.isCountingIn ? "rec-blink 1s steps(2,start) infinite" : undefined,
           }}
         />
@@ -236,22 +241,6 @@ function LookControls({ skin, look, onLook }: { skin: Skin; look: Look; onLook: 
     </div>
   );
 }
-
-const PlayIcon = () => (
-  <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden>
-    <path d="M4 2.5v11l9-5.5-9-5.5Z" />
-  </svg>
-);
-const StopIcon = () => (
-  <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden>
-    <rect x="3" y="3" width="10" height="10" rx="1" />
-  </svg>
-);
-const Rewind = () => (
-  <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden>
-    <path d="M4 3h1.6v10H4V3Zm8.4 0v10l-6.2-5 6.2-5Z" />
-  </svg>
-);
 
 export function formatTime(seconds: number): string {
   const whole = Math.max(0, Math.floor(seconds));
