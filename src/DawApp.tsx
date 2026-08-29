@@ -907,7 +907,6 @@ export default function DawApp() {
                 <TrackList
                 lanes={lanes}
                 skin={skin}
-                accent={accent.solid}
                 laneHeight={look.laneHeight}
                 muted={audible.muted}
                 soloed={audible.soloed}

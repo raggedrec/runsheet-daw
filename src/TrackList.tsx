@@ -12,7 +12,7 @@
  */
 import { useState } from "react";
 import { Plus, X } from "lucide-react";
-import { font, laneColorFor, radius, size, type Skin } from "./theme";
+import { control, font, laneColorFor, radius, readableOn, size, type Skin } from "./theme";
 import type { LoadedLane } from "./opendaw/loadSong";
 
 /** Matches the timeline's ruler, so row one starts level with bar one. */
@@ -22,7 +22,6 @@ export const TRACK_COLUMN = 168;
 export interface TrackListProps {
   lanes: ReadonlyArray<LoadedLane>;
   skin: Skin;
-  accent: string;
   laneHeight: number;
   muted: ReadonlySet<string>;
   soloed: ReadonlySet<string>;
@@ -41,7 +40,7 @@ export interface TrackListProps {
 }
 
 export function TrackList({
-  lanes, skin, accent, laneHeight, muted, soloed, armed, onMute, onSolo, onArm, onSelect, onRename, onRemove, onAddTrack, addBusy, selected,
+  lanes, skin, laneHeight, muted, soloed, armed, onMute, onSolo, onArm, onSelect, onRename, onRemove, onAddTrack, addBusy, selected,
 }: TrackListProps) {
   return (
     <div
@@ -121,7 +120,7 @@ export function TrackList({
                 label="M"
                 title="Mute"
                 on={isMuted}
-                colour="#C0453B"
+                colour={control.mute}
                 skin={skin}
                 onClick={() => onMute(lane)}
               />
@@ -129,7 +128,7 @@ export function TrackList({
                 label="S"
                 title="Solo"
                 on={isSoloed}
-                colour={accent}
+                colour={control.solo}
                 skin={skin}
                 onClick={() => onSolo(lane)}
               />
@@ -143,7 +142,7 @@ export function TrackList({
                 label="R"
                 title="Arm for recording"
                 on={armed === lane.fileId}
-                colour="#C0453B"
+                colour={control.arm}
                 skin={skin}
                 onClick={() => onArm(lane)}
               />
@@ -195,7 +194,7 @@ function Toggle({
       style={{
         width: 24, height: 22,
         font: `700 ${size.xs}px ${font.body}`,
-        color: on ? "#fff" : skin.fgSubtle,
+        color: on ? readableOn(colour) : skin.fgSubtle,
         background: on ? colour : "transparent",
         border: `1px solid ${on ? colour : skin.border}`,
         borderRadius: radius.sm,

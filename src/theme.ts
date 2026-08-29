@@ -34,6 +34,18 @@ export const brand = {
 } as const;
 
 /**
+ * The three transport-critical track states, each its own colour so a glance at
+ * a strip reads its state without hunting: solo yellow, mute green, record-arm
+ * red. Fixed regardless of the chosen accent — these mean the same thing on
+ * every desk and shouldn't shift with a theme.
+ */
+export const control = {
+  solo: "#E0B000",
+  mute: "#3B9E5A",
+  arm: "#C0453B",
+} as const;
+
+/**
  * Selectable accents, each with the foreground that stays readable on it.
  * Pairing them here means an unreadable combination cannot be chosen, rather
  * than merely being discouraged.
@@ -142,6 +154,22 @@ const roleColors: ReadonlyArray<readonly [RegExp, string]> = [
 export function laneColorFor(name: string): string {
   for (const [pattern, color] of roleColors) if (pattern.test(name)) return color;
   return "#6B7B8C";
+}
+
+/**
+ * Black ink or white, whichever reads on a given solid colour — so a label on
+ * the yellow solo isn't the washed-out white that works on the red and green.
+ * WCAG relative luminance, dark ink above the mid threshold.
+ */
+export function readableOn(hex: string): string {
+  if (hex.length !== 7 || hex[0] !== "#") return "#FFFFFF";
+  const n = parseInt(hex.slice(1), 16);
+  const chan = [(n >> 16) & 255, (n >> 8) & 255, n & 255].map((c) => {
+    const s = c / 255;
+    return s <= 0.03928 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4);
+  });
+  const lum = 0.2126 * chan[0] + 0.7152 * chan[1] + 0.0722 * chan[2];
+  return lum > 0.45 ? "#1B2430" : "#FFFFFF";
 }
 
 export interface Look {

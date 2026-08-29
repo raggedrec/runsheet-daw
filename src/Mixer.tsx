@@ -21,7 +21,7 @@ import type { LoadedLane } from "./opendaw/loadSong";
 import type { InputDevice } from "./opendaw/recording";
 import { useInputMeter } from "./useInputMeter";
 import { useMasterMeter } from "./useEngineMeter";
-import { font, laneColorFor, radius, size, space, type Skin } from "./theme";
+import { control, font, laneColorFor, radius, readableOn, size, space, type Skin } from "./theme";
 import { DeviceView } from "./DeviceView";
 import { EffectsRack } from "./EffectsRack";
 
@@ -216,7 +216,8 @@ function Strip({
     // down the column.
     width: 34, height: 22,
     font: `700 ${size.xs}px ${font.body}`,
-    color: on ? "#fff" : skin.fgSubtle,
+    // Readable ink on the state colour — white washes out on the yellow solo.
+    color: on ? readableOn(activeColour) : skin.fgSubtle,
     background: on ? activeColour : "transparent",
     border: `1px solid ${on ? activeColour : skin.border}`,
     borderRadius: radius.sm,
@@ -248,11 +249,11 @@ function Strip({
       {/* Master has no solo — soloing the output is meaningless, and a control
           that does nothing is worse than one that isn't there. */}
       <div style={{ display: "flex", gap: 4, justifyContent: "center", width: "100%" }}>
-        <button onClick={() => write(() => unit.mute.setValue(!muted))} style={toggle(muted, "#C0453B")} title="Mute">
+        <button onClick={() => write(() => unit.mute.setValue(!muted))} style={toggle(muted, control.mute)} title="Mute">
           M
         </button>
         {!isMaster && (
-          <button onClick={() => write(() => unit.solo.setValue(!soloed))} style={toggle(soloed, accent)} title="Solo">
+          <button onClick={() => write(() => unit.solo.setValue(!soloed))} style={toggle(soloed, control.solo)} title="Solo">
             S
           </button>
         )}
