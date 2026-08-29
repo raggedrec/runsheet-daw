@@ -115,52 +115,56 @@ export function Timeline({
        * stretching it to the full width — is what makes a short stem look
        * short instead of slow.
        */
+      // An empty record lane (no take yet) has no peaks — the row is drawn, the
+      // waveform simply isn't there until the take finalises.
       const { peaks } = lane;
-      const channels = Math.min(peaks.numChannels, 2);
-      const pad = 3;
-      const usable = laneHeight - pad * 2;
-      const chHeight = usable / channels;
+      if (peaks !== null) {
+        const channels = Math.min(peaks.numChannels, 2);
+        const pad = 3;
+        const usable = laneHeight - pad * 2;
+        const chHeight = usable / channels;
 
-      ctx.save();
-      ctx.beginPath();
-      ctx.rect(trackX, top, trackW, laneHeight);
-      ctx.clip();
-      ctx.fillStyle = on ? skin.wave : skin.waveMuted;
-      ctx.strokeStyle = on ? skin.wave : skin.waveMuted;
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(trackX, top, trackW, laneHeight);
+        ctx.clip();
+        ctx.fillStyle = on ? skin.wave : skin.waveMuted;
+        ctx.strokeStyle = on ? skin.wave : skin.waveMuted;
 
-      /*
-       * The slice of THIS lane the window can see, in seconds.
-       *
-       * u0..u1 and x0..x1 must describe the SAME span of audio, because the
-       * painter maps one onto the other. The previous version passed the
-       * visible slice as u but the whole file's width as x, so the waveform was
-       * stretched across the full width and slid against the bar grid whenever
-       * the view scrolled. Both ranges now come from the same two numbers, so
-       * they cannot drift apart again.
-       */
-      const visStart = Math.max(from, 0);
-      const visEnd = Math.min(to, lane.seconds);
+        /*
+         * The slice of THIS lane the window can see, in seconds.
+         *
+         * u0..u1 and x0..x1 must describe the SAME span of audio, because the
+         * painter maps one onto the other. The previous version passed the
+         * visible slice as u but the whole file's width as x, so the waveform was
+         * stretched across the full width and slid against the bar grid whenever
+         * the view scrolled. Both ranges now come from the same two numbers, so
+         * they cannot drift apart again.
+         */
+        const visStart = Math.max(from, 0);
+        const visEnd = Math.min(to, lane.seconds);
 
-      if (visEnd > visStart) {
-        const framesPerSecond = peaks.numFrames / lane.seconds;
-        for (let ch = 0; ch < channels; ch++) {
-          const y0 = top + pad + ch * chHeight;
-          ctx.beginPath();
-          PeaksPainter.renderPixelStrips(ctx, peaks, ch, {
-            u0: visStart * framesPerSecond,
-            u1: visEnd * framesPerSecond,
-            // Peaks are normalised to ±1.
-            v0: -1,
-            v1: 1,
-            x0: secondsToX(visStart),
-            x1: secondsToX(visEnd),
-            y0,
-            y1: y0 + chHeight,
-          });
-          ctx.fill();
+        if (visEnd > visStart) {
+          const framesPerSecond = peaks.numFrames / lane.seconds;
+          for (let ch = 0; ch < channels; ch++) {
+            const y0 = top + pad + ch * chHeight;
+            ctx.beginPath();
+            PeaksPainter.renderPixelStrips(ctx, peaks, ch, {
+              u0: visStart * framesPerSecond,
+              u1: visEnd * framesPerSecond,
+              // Peaks are normalised to ±1.
+              v0: -1,
+              v1: 1,
+              x0: secondsToX(visStart),
+              x1: secondsToX(visEnd),
+              y0,
+              y1: y0 + chHeight,
+            });
+            ctx.fill();
+          }
         }
+        ctx.restore();
       }
-      ctx.restore();
 
       // Separator under every lane but the last.
       if (i < lanes.length - 1) {

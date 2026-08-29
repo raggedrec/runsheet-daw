@@ -80,14 +80,18 @@ export interface LoadedLane {
   fileId: string;
   seconds: number;
   /**
-   * openDAW's multi-resolution waveform overview.
+   * openDAW's multi-resolution waveform overview, or null for an empty lane.
    *
    * Computed during import and kept rather than discarded: drawing from peaks
    * is what makes a four-minute stem render in a frame instead of walking
    * millions of samples. Peaks.nearest(unitsPerPixel) picks the right level of
    * detail for the current zoom.
+   *
+   * Null while a record lane is waiting for its first take — the row exists in
+   * the timeline the moment the track is added, and its waveform fills in when
+   * the take finalises. The timeline draws a null-peaks lane as an empty row.
    */
-  peaks: Peaks;
+  peaks: Peaks | null;
   /**
    * The lane's audio unit — its fader, pan, mute and solo live here.
    *

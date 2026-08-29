@@ -331,6 +331,21 @@ export default function DawApp() {
         const track = addRecordTrack(session.project, name);
         armTrack(session.project, track.capture, chosen);
         setRecordTrack(track);
+
+        /*
+         * The lane appears NOW, empty, not after the first take. Adding a track
+         * puts a row in the timeline and a strip in the mixer straight away, and
+         * arms it — so you can see what you're about to record onto, the way a
+         * DAW works. Its waveform fills in when the take finalises (stopRecord
+         * matches this lane by its audio unit and drops the peaks in). peaks is
+         * null until then, which the timeline draws as an empty row.
+         */
+        const laneId = `rec:${crypto.randomUUID()}`;
+        setLanes((current) => [
+          ...current,
+          { name: track.name, fileId: laneId, seconds: 0, peaks: null, unit: track.capture.audioUnitBox },
+        ]);
+        setArmedLane(laneId);
       } catch (err) {
         setRecError(
           err instanceof RecordingError
@@ -415,20 +430,37 @@ export default function DawApp() {
         return;
       }
 
-      setLanes((current) => [
-        ...current,
-        ...takes.map((t) => ({
+      /*
+       * Fill the empty record lane in place rather than appending a new one.
+       * addTrack already put a row in the timeline for this take's audio unit;
+       * the first take drops its waveform into that row. Extra takes (a punch-in
+       * producing more than one region) append as their own lanes on the same
+       * unit — rare, but a performance we shouldn't silently drop.
+       */
+      const unit = recordTrack.capture.audioUnitBox;
+      const [first, ...rest] = takes;
+      setLanes((current) => {
+        let filled = false;
+        const updated = current.map((l) => {
+          if (!filled && l.unit === unit) {
+            filled = true;
+            return { ...l, name: first.name, seconds: first.seconds, peaks: first.peaks };
+          }
+          return l;
+        });
+        // No empty row to fill (e.g. recorded onto an existing lane): append.
+        const head = filled
+          ? updated
+          : [...updated, { name: first.name, fileId: `take:${crypto.randomUUID()}`, seconds: first.seconds, peaks: first.peaks, unit }];
+        const extras = rest.map((t) => ({
           name: t.name,
-          // No Idea Drop row exists yet, so the lane is keyed by something
-          // stable and local until the upload gives it a real id.
           fileId: `take:${crypto.randomUUID()}`,
           seconds: t.seconds,
           peaks: t.peaks,
-          // The take's lane is the track it was recorded onto, so its mixer
-          // strip is that track's audio unit.
-          unit: recordTrack.capture.audioUnitBox,
-        })),
-      ]);
+          unit,
+        }));
+        return [...head, ...extras];
+      });
       setUnsaved((n) => n + takes.length);
 
       // Upload after the lane appears, not before: the take is visible and
