@@ -177,6 +177,25 @@ export function startRecording(project: Project, countIn: boolean): void {
    * twice, and CaptureAudio nulls its prepared worklet once used.
    */
   project.startRecording(countIn);
+
+  /*
+   * And then roll the transport, because startRecording does not.
+   *
+   * This is the whole bug. Recording.start arms the capture chain and calls
+   * engine.prepareRecordingState(countIn) — it prepares. It never starts
+   * playback. With the transport stopped: the stems are silent, RecordAudio
+   * has nothing to capture, no region is ever produced, and Stop has nothing
+   * to stop. One cause, all three symptoms.
+   *
+   * The engine log proved the capture side was fine all along — "[RecordAudio]
+   * start" was reached with no warnings — which is what finally pointed here.
+   *
+   * With a count-in, openDAW rolls once the count completes, so `play()` is
+   * only forced when it isn't already going.
+   */
+  if (!countIn && !project.engine.isPlaying.getValue()) {
+    project.engine.play();
+  }
 }
 
 /**

@@ -292,6 +292,25 @@ export default function DawApp() {
         session.project.tempoMap.secondsToPPQN(clock.seconds),
       );
       beginRecording(session.project, countIn);
+
+      /*
+       * Report what the engine actually did, a beat later. The log showed
+       * "[RecordAudio] start" while nothing rolled, and there was no way to
+       * see that from the outside — the on-screen clock is driven from the
+       * AudioContext, so it counts up whether or not the transport moves.
+       */
+      window.setTimeout(() => {
+        const e = session.project.engine;
+        console.debug(
+          "[RunSheet] engine after record:",
+          JSON.stringify({
+            isPlaying: e.isPlaying.getValue(),
+            isRecording: e.isRecording.getValue(),
+            isCountingIn: e.isCountingIn.getValue(),
+            position: e.position.getValue(),
+          }),
+        );
+      }, 800);
       clock.start(clock.seconds);
       setRolling(true);
       setIsRecording(true);
