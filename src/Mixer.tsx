@@ -1,20 +1,22 @@
 /**
- * The mixer: a strip per lane — fader, pan, mute, solo.
+ * The mixer: a vertical strip per track, plus master.
  *
- * These write straight to openDAW's boxes rather than to React state that
- * something else then applies. The box graph *is* the mix: the engine reads it,
- * `toArrayBuffer()` saves it, and a bounce renders it. Keeping a second copy in
- * React would give two answers to "how loud is the vocal" and guarantee they
- * eventually disagree.
+ * Vertical because that is what a desk looks like and what a mix engineer's
+ * hands expect — and because comparing six faders is a glance across a row of
+ * columns, not a scan down a list of horizontal sliders.
  *
- * Every write goes inside `project.editing.modify()`. openDAW refuses box
- * writes outside a transaction — the graph is transactional so undo, and the
- * subscribers that rebuild the audio worklet, see whole changes rather than
- * half of one.
+ * Every control writes straight to openDAW's boxes. The box graph IS the mix:
+ * the engine reads it, toArrayBuffer() saves it, a bounce renders it. A second
+ * copy in React would give two answers to "how loud is the vocal" and they
+ * would eventually disagree. `revision` only tells React to re-read.
+ *
+ * Writes go inside project.editing.modify(), because openDAW refuses box
+ * writes outside a transaction.
  */
 import { useCallback } from "react";
 import type { Project } from "@opendaw/studio-core";
 import { AudioUnitBoxAdapter } from "@opendaw/studio-adapters";
+import type { AudioUnitBox } from "@opendaw/studio-boxes";
 import type { LoadedLane } from "./opendaw/loadSong";
 import { font, laneColorFor, radius, size, space, type Skin } from "./theme";
 
@@ -23,66 +25,91 @@ export interface MixerProps {
   lanes: ReadonlyArray<LoadedLane>;
   skin: Skin;
   accent: string;
-  /** Bumped by the parent after any mix change, to force a re-read. */
   revision: number;
   onChanged: () => void;
 }
 
 export function Mixer({ project, lanes, skin, accent, revision, onChanged }: MixerProps) {
+  /*
+   * The output unit, found by asking rather than assuming an index. Track
+   * order changes as takes are added; "the last one" would silently become
+   * the wrong strip.
+   */
+  const master = project.rootBoxAdapter.audioUnits
+    .adapters()
+    .find((a) => a.isOutput);
+
   return (
     <section
       style={{
         background: skin.surface,
         border: `1px solid ${skin.border}`,
         borderRadius: radius.md,
-        padding: space[4],
         marginTop: space[4],
+        overflow: "hidden",
       }}
     >
       <h2
         style={{
           font: `600 ${size.xs}px ${font.body}`,
-          letterSpacing: ".08em",
-          textTransform: "uppercase",
+          letterSpacing: ".08em", textTransform: "uppercase",
           color: skin.fgSubtle,
-          margin: `0 0 ${space[3]}px`,
+          margin: 0, padding: `${space[3]}px ${space[4]}px`,
+          borderBottom: `1px solid ${skin.border}`,
         }}
       >
         Mixer
       </h2>
 
-      <div style={{ display: "flex", flexDirection: "column", gap: space[2] }}>
+      {/* Scrolls sideways rather than shrinking strips to unusable widths —
+          a 30px fader is a decoration. */}
+      <div style={{ display: "flex", gap: 1, overflowX: "auto", padding: space[3], background: skin.surfaceSunken }}>
         {lanes.map((lane) => (
           <Strip
             key={lane.fileId}
             project={project}
-            lane={lane}
+            unit={lane.unit}
+            name={lane.name}
+            colour={laneColorFor(lane.name)}
             skin={skin}
             accent={accent}
             revision={revision}
             onChanged={onChanged}
           />
         ))}
+
+        {master && (
+          <Strip
+            project={project}
+            unit={master.box}
+            name="Master"
+            colour={skin.borderStrong}
+            skin={skin}
+            accent={accent}
+            revision={revision}
+            onChanged={onChanged}
+            isMaster
+          />
+        )}
       </div>
     </section>
   );
 }
 
 function Strip({
-  project, lane, skin, accent, revision, onChanged,
+  project, unit, name, colour, skin, accent, revision, onChanged, isMaster = false,
 }: {
   project: Project;
-  lane: LoadedLane;
+  unit: AudioUnitBox;
+  name: string;
+  colour: string;
   skin: Skin;
   accent: string;
   revision: number;
   onChanged: () => void;
+  isMaster?: boolean;
 }) {
-  const { unit } = lane;
-  // Read straight from the boxes on every render. `revision` is what makes a
-  // render happen after a change; the values themselves always come from the
-  // graph, never from a cached copy.
-  void revision;
+  void revision; // the trigger to re-read; values always come from the graph
   const volume = unit.volume.getValue();
   const panning = unit.panning.getValue();
   const muted = unit.mute.getValue();
@@ -96,94 +123,96 @@ function Strip({
     [project, onChanged],
   );
 
-  const button = (active: boolean, activeColor: string): React.CSSProperties => ({
-    width: 26, height: 26,
+  const toggle = (on: boolean, activeColour: string): React.CSSProperties => ({
+    flex: 1, height: 22,
     font: `700 ${size.xs}px ${font.body}`,
-    color: active ? "#fff" : skin.fgSubtle,
-    background: active ? activeColor : "transparent",
-    border: `1px solid ${active ? activeColor : skin.border}`,
+    color: on ? "#fff" : skin.fgSubtle,
+    background: on ? activeColour : "transparent",
+    border: `1px solid ${on ? activeColour : skin.border}`,
     borderRadius: radius.sm,
-    cursor: "pointer",
-    flex: "0 0 auto",
+    cursor: "pointer", padding: 0,
   });
 
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: space[3] }}>
-      <span style={{ width: 3, height: 24, borderRadius: 2, background: laneColorFor(lane.name), flex: "0 0 auto" }} />
-
+    <div
+      style={{
+        width: 104, flex: "0 0 auto",
+        background: skin.surface,
+        borderTop: `3px solid ${colour}`,
+        padding: `${space[3]}px ${space[2]}px`,
+        display: "flex", flexDirection: "column", alignItems: "center", gap: space[2],
+      }}
+    >
       <span
         style={{
+          width: "100%", textAlign: "center",
           font: `600 ${size.sm}px ${font.body}`, letterSpacing: ".05em",
           color: muted ? skin.fgSubtle : skin.fg,
-          width: 82, flex: "0 0 auto",
           overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
         }}
-        title={lane.name}
+        title={name}
       >
-        {lane.name.toUpperCase()}
+        {name.toUpperCase()}
       </span>
 
-      <button
-        onClick={() => write(() => unit.mute.setValue(!muted))}
-        style={button(muted, "#C0453B")}
-        title="Mute"
-        aria-pressed={muted}
-      >
-        M
-      </button>
-      <button
-        onClick={() => write(() => unit.solo.setValue(!soloed))}
-        style={button(soloed, accent)}
-        title="Solo"
-        aria-pressed={soloed}
-      >
-        S
-      </button>
+      {/* Master has no solo — soloing the output is meaningless, and a control
+          that does nothing is worse than one that isn't there. */}
+      <div style={{ display: "flex", gap: 4, width: "100%" }}>
+        <button onClick={() => write(() => unit.mute.setValue(!muted))} style={toggle(muted, "#C0453B")} title="Mute">
+          M
+        </button>
+        {!isMaster && (
+          <button onClick={() => write(() => unit.solo.setValue(!soloed))} style={toggle(soloed, accent)} title="Solo">
+            S
+          </button>
+        )}
+      </div>
 
-      {/* Pan. Centre is 0; the label reads L/R rather than a signed number,
-          because nobody thinks in "-0.42". */}
-      <label style={{ display: "flex", alignItems: "center", gap: 6, flex: "0 0 auto" }}>
-        <span style={{ font: `500 ${size.xs}px ${font.body}`, color: skin.fgSubtle, width: 30 }}>
-          {panLabel(panning)}
-        </span>
-        <input
-          type="range"
-          min={-1}
-          max={1}
-          step={0.01}
-          value={panning}
-          onChange={(e) => write(() => unit.panning.setValue(Number(e.target.value)))}
-          // Double-click to recentre: the standard gesture, and without it
-          // returning to exact centre with a mouse is luck.
-          onDoubleClick={() => write(() => unit.panning.setValue(0))}
-          title="Pan — double-click to centre"
-          style={{ width: 74, accentColor: skin.fgMuted }}
-        />
-      </label>
+      {!isMaster && (
+        <label style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 2, width: "100%" }}>
+          <input
+            type="range"
+            min={-1} max={1} step={0.01}
+            value={panning}
+            onChange={(e) => write(() => unit.panning.setValue(Number(e.target.value)))}
+            onDoubleClick={() => write(() => unit.panning.setValue(0))}
+            title="Pan — double-click to centre"
+            style={{ width: "100%", accentColor: skin.fgMuted }}
+          />
+          <span style={{ font: `500 ${size.xs}px ${font.mono}`, color: skin.fgSubtle }}>
+            {panLabel(panning)}
+          </span>
+        </label>
+      )}
 
       {/*
-        The fader is a unit value 0..1; the box stores gain. VolumeMapper is
-        openDAW's own curve between the two, so the taper matches what the
-        engine expects rather than being a linear guess.
+        A vertical fader, via a rotated range input.
+        writing-mode is the modern way and Safari has been slow to it, so the
+        rotation is the fallback that works everywhere today. Ugly in the
+        markup, correct on screen.
       */}
-      <input
-        type="range"
-        min={0}
-        max={1}
-        step={0.001}
-        value={AudioUnitBoxAdapter.VolumeMapper.x(volume)}
-        onChange={(e) =>
-          write(() => unit.volume.setValue(AudioUnitBoxAdapter.VolumeMapper.y(Number(e.target.value))))
-        }
-        onDoubleClick={() => write(() => unit.volume.setValue(AudioUnitBoxAdapter.VolumeMapper.y(defaultFader)))}
-        title="Volume — double-click for unity"
-        style={{ flex: 1, minWidth: 90, accentColor: accent }}
-      />
+      <div style={{ height: 150, display: "grid", placeItems: "center", width: "100%" }}>
+        <input
+          type="range"
+          min={0} max={1} step={0.001}
+          value={AudioUnitBoxAdapter.VolumeMapper.x(volume)}
+          onChange={(e) =>
+            write(() => unit.volume.setValue(AudioUnitBoxAdapter.VolumeMapper.y(Number(e.target.value))))
+          }
+          onDoubleClick={() => write(() => unit.volume.setValue(AudioUnitBoxAdapter.VolumeMapper.y(UNITY)))}
+          title="Volume — double-click for unity"
+          style={{
+            width: 150,
+            transform: "rotate(-90deg)",
+            accentColor: isMaster ? skin.fgMuted : accent,
+          }}
+        />
+      </div>
 
       <span
         style={{
           font: `500 ${size.xs}px ${font.mono}`, color: skin.fgSubtle,
-          width: 52, textAlign: "right", fontVariantNumeric: "tabular-nums", flex: "0 0 auto",
+          fontVariantNumeric: "tabular-nums",
         }}
       >
         {dbLabel(volume)}
@@ -193,16 +222,16 @@ function Strip({
 }
 
 /**
- * Where unity sits on a 0..1 fader.
+ * Unity on a 0..1 fader, read from the mapper rather than assumed.
  *
- * Read back from the mapper rather than assumed: 0 dB is not at the top of a
- * volume curve, it's somewhere below it so there's headroom to push a part up.
+ * 0 dB is not the top of a volume curve — it sits below it, so there is
+ * headroom to push a part up.
  */
-const defaultFader = AudioUnitBoxAdapter.VolumeMapper.x(0);
+const UNITY = AudioUnitBoxAdapter.VolumeMapper.x(0);
 
 function dbLabel(db: number): string {
   if (!Number.isFinite(db) || db <= -60) return "-∞";
-  return `${db > 0 ? "+" : ""}${db.toFixed(1)} dB`;
+  return `${db > 0 ? "+" : ""}${db.toFixed(1)}`;
 }
 
 function panLabel(pan: number): string {
@@ -212,11 +241,11 @@ function panLabel(pan: number): string {
 }
 
 /**
- * Which lanes are audible, for the timeline to grey out.
+ * Which lanes can actually be heard, for the timeline and the track list.
  *
- * Not the same as "not muted": any solo silences every unsoloed lane. A soloed
- * -out lane drawn at full strength is the commonest way to lose five minutes
- * wondering why a part can't be heard.
+ * Not the same as "not muted": any solo silences every unsoloed lane. A
+ * soloed-out lane drawn at full strength is the commonest way to lose five
+ * minutes wondering why a part is missing.
  */
 export function audibility(lanes: ReadonlyArray<LoadedLane>): {
   muted: ReadonlySet<string>;

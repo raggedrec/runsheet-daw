@@ -146,6 +146,21 @@ export function armTrack(project: Project, capture: Capture, deviceId: string | 
   });
 }
 
+/**
+ * The capture belonging to an audio unit, if it has one.
+ *
+ * Every track gets one when it is created, which is what makes a per-track
+ * arm button possible: arming is a property of the track, not of a single
+ * global picker sitting in the header.
+ */
+export function captureFor(project: Project, unit: AudioUnitBox): Capture | null {
+  return (
+    project.captureDevices.get(unit.address.uuid).unwrapOrNull() ??
+    project.captureDevices.allCaptures().find((c) => c.audioUnitBox === unit) ??
+    null
+  );
+}
+
 export function disarmAll(project: Project): void {
   const armed = project.captureDevices.filterArmed();
   if (armed.length === 0) return;

@@ -17,7 +17,13 @@ import type { LoadedLane } from "./opendaw/loadSong";
 import { font, laneColorFor, size, type Skin } from "./theme";
 
 const RULER_HEIGHT = 26;
-/** Room for the name and the mute/solo pair, left of the waveforms. */
+/**
+ * Width of the in-canvas label column.
+ *
+ * Zero when a real tracks column sits beside the timeline and owns the names,
+ * mute, solo and arm — drawing them twice would be two things to keep aligned
+ * and one of them would drift.
+ */
 export const GUTTER = 116;
 
 export interface TimelineProps {
@@ -33,10 +39,13 @@ export interface TimelineProps {
   muted: ReadonlySet<string>;
   soloed: ReadonlySet<string>;
   onScrub: (seconds: number) => void;
+  /** 0 when a tracks column beside the timeline draws the labels instead. */
+  gutter?: number;
 }
 
 export function Timeline({
   lanes, skin, accent, laneHeight, position, duration, bpm, muted, soloed, onScrub,
+  gutter = GUTTER,
 }: TimelineProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const wrapRef = useRef<HTMLDivElement | null>(null);
@@ -61,7 +70,7 @@ export function Timeline({
     if (!canvas || !wrap) return;
 
     const width = wrap.clientWidth;
-    if (width <= GUTTER) return;
+    if (width <= gutter) return;
 
     // Canvas pixels are device pixels; CSS pixels are what the layout uses.
     // Without this the waveform is soft on any retina display.
@@ -75,8 +84,8 @@ export function Timeline({
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, width, height);
 
-    const trackX = GUTTER;
-    const trackW = width - GUTTER;
+    const trackX = gutter;
+    const trackW = width - gutter;
     const secondsToX = (s: number) => trackX + (duration > 0 ? (s / duration) * trackW : 0);
 
     // --- lanes ------------------------------------------------------------
@@ -186,8 +195,8 @@ export function Timeline({
       }
     }
 
-    // --- lane labels ------------------------------------------------------
-    lanes.forEach((lane, i) => {
+    // --- lane labels, only when this canvas owns them ---------------------
+    if (gutter > 0) lanes.forEach((lane, i) => {
       const top = RULER_HEIGHT + i * laneHeight;
       ctx.fillStyle = skin.surface;
       ctx.fillRect(0, top, GUTTER, laneHeight);
@@ -202,8 +211,10 @@ export function Timeline({
       ctx.fillStyle = skin.laneLine;
       ctx.fillRect(0, top + laneHeight - 1, GUTTER, 1);
     });
-    ctx.fillStyle = skin.laneLine;
-    ctx.fillRect(GUTTER - 1, 0, 1, height);
+    if (gutter > 0) {
+      ctx.fillStyle = skin.laneLine;
+      ctx.fillRect(gutter - 1, 0, 1, height);
+    }
 
     // --- playhead, last so nothing covers it ------------------------------
     const px = Math.round(secondsToX(Math.min(position, duration))) + 0.5;
@@ -220,7 +231,7 @@ export function Timeline({
     ctx.lineTo(px, 8);
     ctx.closePath();
     ctx.fill();
-  }, [lanes, skin, accent, laneHeight, position, duration, bpm, audible, height]);
+  }, [lanes, skin, accent, laneHeight, position, duration, bpm, audible, height, gutter]);
 
   useEffect(() => {
     draw();
@@ -242,12 +253,12 @@ export function Timeline({
       const wrap = wrapRef.current;
       if (!wrap || duration <= 0) return;
       const rect = wrap.getBoundingClientRect();
-      const x = clientX - rect.left - GUTTER;
-      const w = rect.width - GUTTER;
+      const x = clientX - rect.left - gutter;
+      const w = rect.width - gutter;
       if (w <= 0) return;
       onScrub(Math.min(duration, Math.max(0, (x / w) * duration)));
     },
-    [duration, onScrub],
+    [duration, onScrub, gutter],
   );
 
   const onPointerDown = useCallback(

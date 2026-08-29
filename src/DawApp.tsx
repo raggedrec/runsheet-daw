@@ -20,13 +20,15 @@ import { accents, skins } from "./theme";
 import { RecordPanel } from "./RecordPanel";
 import { StartScreen } from "./StartScreen";
 import { Mixer, audibility } from "./Mixer";
+import { TrackList } from "./TrackList";
+import { StatusBar } from "./StatusBar";
 import { useConsoleLog } from "./useConsoleLog";
 import { collectTakes } from "./opendaw/take";
 import { saveSession } from "./session";
 import { uploadToIdeaDrop } from "./runsheet";
 import { useTransport } from "./useTransport";
 import {
-  addRecordTrack, armTrack, listInputs, RecordingError,
+  addRecordTrack, armTrack, captureFor, disarmAll, listInputs, RecordingError,
   startRecording as beginRecording, stopRecording as endRecording,
   type InputDevice, type RecordTrack,
 } from "./opendaw/recording";
@@ -65,6 +67,8 @@ export default function DawApp() {
    * there's never a second copy to disagree with the graph.
    */
   const [mixRevision, setMixRevision] = useState(0);
+  /** fileId of the lane whose R button is lit. */
+  const [armedLane, setArmedLane] = useState<string | null>(null);
   /*
    * openDAW reports failures through the console and nothing else — a
    * recording that never started and a take with no signal look identical
@@ -188,6 +192,58 @@ export default function DawApp() {
   /* eslint-disable-next-line react-hooks/exhaustive-deps -- mixRevision is the trigger */
   const audible = useMemo(() => audibility(lanes), [lanes, mixRevision]);
 
+
+  const bump = useCallback(() => setMixRevision((n) => n + 1), []);
+
+  const toggleMute = useCallback(
+    (lane: LoadedLane) => {
+      if (!session) return;
+      session.project.editing.modify(() => lane.unit.mute.setValue(!lane.unit.mute.getValue()));
+      bump();
+    },
+    [session, bump],
+  );
+
+  const toggleSolo = useCallback(
+    (lane: LoadedLane) => {
+      if (!session) return;
+      session.project.editing.modify(() => lane.unit.solo.setValue(!lane.unit.solo.getValue()));
+      bump();
+    },
+    [session, bump],
+  );
+
+  /**
+   * Arm a track for recording, exclusively.
+   *
+   * Arming is a property of a track, which is why the button lives on the
+   * track. The input DEVICE is still chosen once in the transport, because one
+   * interface is the normal case and asking per track would be four dropdowns
+   * saying the same thing.
+   */
+  const toggleArm = useCallback(
+    (lane: LoadedLane) => {
+      if (!session) return;
+      if (armedLane === lane.fileId) {
+        disarmAll(session.project);
+        setArmedLane(null);
+        setRecordTrack(null);
+        return;
+      }
+      const capture = captureFor(session.project, lane.unit);
+      if (capture === null) {
+        setRecError({
+          message: "That track has no input.",
+          remedy: "It was created without a capture device, so it can't record.",
+        });
+        return;
+      }
+      armTrack(session.project, capture, deviceId);
+      setArmedLane(lane.fileId);
+      setRecordTrack({ name: lane.name, capture });
+    },
+    [session, armedLane, deviceId],
+  );
 
   /*
    * One owner for the transport. See useTransport.
@@ -515,18 +571,43 @@ export default function DawApp() {
             </section>
           )}
 
-          <Timeline
-            lanes={lanes}
-            skin={skin}
-            accent={accent.solid}
-            laneHeight={look.laneHeight}
-            position={seconds}
-            duration={duration}
-            bpm={song?.bpm ? tempoOf(song.bpm) : null}
-            muted={audible.muted}
-            soloed={audible.soloed}
-            onScrub={transport.seek}
-          />
+          <div
+            style={{
+              display: "flex",
+              background: skin.surface,
+              border: `1px solid ${skin.border}`,
+              borderRadius: 6,
+              overflow: "hidden",
+            }}
+          >
+            <TrackList
+              lanes={lanes}
+              skin={skin}
+              accent={accent.solid}
+              laneHeight={look.laneHeight}
+              muted={audible.muted}
+              soloed={audible.soloed}
+              armed={armedLane}
+              onMute={toggleMute}
+              onSolo={toggleSolo}
+              onArm={toggleArm}
+            />
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <Timeline
+                lanes={lanes}
+                skin={skin}
+                accent={accent.solid}
+                laneHeight={look.laneHeight}
+                position={seconds}
+                duration={duration}
+                bpm={song?.bpm ? tempoOf(song.bpm) : null}
+                muted={audible.muted}
+                soloed={audible.soloed}
+                onScrub={transport.seek}
+                gutter={0}
+              />
+            </div>
+          </div>
 
           <Mixer
             project={session.project}
@@ -534,7 +615,14 @@ export default function DawApp() {
             skin={skin}
             accent={accent.solid}
             revision={mixRevision}
-            onChanged={() => setMixRevision((n) => n + 1)}
+            onChanged={bump}
+          />
+
+          <StatusBar
+            skin={skin}
+            project={session.project}
+            audioContext={session.audioContext}
+            position={seconds}
           />
         </>
       )}
