@@ -448,6 +448,22 @@ export default function DawApp() {
     }
   }, [session, recordTrack, song, transport]);
 
+  /**
+   * One stop for the whole transport.
+   *
+   * A take in progress ends through stopRecord — which finalises it and draws
+   * its lane — and anything else is plain playback, which just halts. Routing
+   * both through one button is what keeps "end the recording" a single, reliable
+   * click rather than a toggle that sometimes started a second take instead.
+   */
+  const stopAll = useCallback(() => {
+    if (isRecording || transport.isRecording || transport.isCountingIn) {
+      void stopRecord();
+    } else {
+      transport.stop();
+    }
+  }, [isRecording, transport, stopRecord]);
+
   /** Saves the whole session: tracks, faders, pans, effects, arrangement. */
   const save = useCallback(async () => {
     if (!session || !song) return;
@@ -571,10 +587,10 @@ export default function DawApp() {
             onLook={setLook}
             zoom={zoom}
             onZoom={(z) => { setZoom(z); if (z === 1) setScroll(0); }}
-            onPlayStop={transport.toggle}
+            onPlay={transport.play}
+            onStop={stopAll}
             onRewind={transport.rewind}
             onRecord={() => void record()}
-            onStopRecord={() => void stopRecord()}
             onCountIn={setCountIn}
             saveState={saveState}
             onSave={() => void save()}

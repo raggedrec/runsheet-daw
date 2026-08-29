@@ -33,10 +33,11 @@ export interface TransportBarProps {
   onLook: (patch: Partial<Look>) => void;
   zoom: number;
   onZoom: (zoom: number) => void;
-  onPlayStop: () => void;
+  onPlay: () => void;
+  /** Stops whatever is happening — a take in progress, or plain playback. */
+  onStop: () => void;
   onRewind: () => void;
   onRecord: () => void;
-  onStopRecord: () => void;
   onCountIn: (on: boolean) => void;
   saveState: "idle" | "saving" | "saved" | "failed";
   onSave: () => void;
@@ -70,32 +71,63 @@ export function TransportBar(p: TransportBarProps) {
       </button>
 
       <button
-        onClick={p.onPlayStop}
-        aria-label={p.isPlaying ? "Stop" : "Play"}
+        onClick={p.onPlay}
+        aria-label="Play"
+        title="Play"
         style={{
           width: 46, height: 46, borderRadius: radius.pill,
           display: "grid", placeItems: "center",
           background: accent, color: accentFg, border: "none", cursor: "pointer",
         }}
       >
-        {p.isPlaying ? <Square size={15} fill="currentColor" /> : <Play size={16} fill="currentColor" />}
+        <Play size={16} fill="currentColor" />
       </button>
 
       {/*
+        One Stop for everything. Play, Stop and Record each do exactly one thing
+        now — no button that means "start" one moment and "stop" the next. Stop
+        finalises a take when one is running and otherwise just halts playback,
+        so ending a recording is always the same click in the same place, which
+        is what makes a recorded lane land reliably.
+      */}
+      {(() => {
+        const active = p.isPlaying || p.isRecording || p.isCountingIn;
+        return (
+          <button
+            onClick={p.onStop}
+            disabled={!active}
+            aria-label="Stop"
+            title="Stop"
+            style={{
+              width: 46, height: 46, borderRadius: radius.pill,
+              display: "grid", placeItems: "center",
+              background: skin.surfaceSunken, color: skin.fg,
+              border: `1px solid ${skin.border}`,
+              cursor: active ? "pointer" : "default",
+              opacity: active ? 1 : 0.4,
+            }}
+          >
+            <Square size={15} fill="currentColor" />
+          </button>
+        );
+      })()}
+
+      {/*
         Record sits next to Play because it is the same gesture with one more
-        thing switched on: the song rolls either way.
+        thing switched on: the song rolls either way. It only starts a take now;
+        Stop ends it.
       */}
       <button
-        onClick={p.isRecording || p.isCountingIn ? p.onStopRecord : p.onRecord}
-        disabled={!recordable && !p.isRecording && !p.isCountingIn}
+        onClick={p.onRecord}
+        disabled={!recordable || p.isRecording || p.isCountingIn}
         title={p.armedTrackName ? `Record onto ${p.armedTrackName}` : "Add a track to record onto"}
-        aria-label={p.isRecording ? "Stop recording" : "Record"}
+        aria-label="Record"
         style={{
           width: 46, height: 46, borderRadius: radius.pill,
           display: "grid", placeItems: "center",
           background: p.isRecording || p.isCountingIn ? "#8E2C24" : "#C0453B",
           border: "none",
-          cursor: recordable || p.isRecording ? "pointer" : "default",
+          cursor: recordable && !p.isRecording && !p.isCountingIn ? "pointer" : "default",
           opacity: recordable || p.isRecording || p.isCountingIn ? 1 : 0.35,
         }}
       >
