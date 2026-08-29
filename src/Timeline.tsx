@@ -128,27 +128,37 @@ export function Timeline({
       ctx.fillStyle = on ? skin.wave : skin.waveMuted;
       ctx.strokeStyle = on ? skin.wave : skin.waveMuted;
 
-      for (let ch = 0; ch < channels; ch++) {
-        const y0 = top + pad + ch * chHeight;
-        ctx.beginPath();
-        PeaksPainter.renderPixelStrips(ctx, peaks, ch, {
-          // Units are sample frames; the whole file maps onto its own width.
-          /*
-           * Draw only the visible slice of the file. Passing the whole file
-           * and letting the canvas clip would decode peaks for four minutes to
-           * show eight seconds of them.
-           */
-          u0: (from / lane.seconds) * peaks.numFrames,
-          u1: (to / lane.seconds) * peaks.numFrames,
-          // Peaks are normalised to ±1.
-          v0: -1,
-          v1: 1,
-          x0: secondsToX(0),
-          x1: secondsToX(lane.seconds),
-          y0,
-          y1: y0 + chHeight,
-        });
-        ctx.fill();
+      /*
+       * The slice of THIS lane the window can see, in seconds.
+       *
+       * u0..u1 and x0..x1 must describe the SAME span of audio, because the
+       * painter maps one onto the other. The previous version passed the
+       * visible slice as u but the whole file's width as x, so the waveform was
+       * stretched across the full width and slid against the bar grid whenever
+       * the view scrolled. Both ranges now come from the same two numbers, so
+       * they cannot drift apart again.
+       */
+      const visStart = Math.max(from, 0);
+      const visEnd = Math.min(to, lane.seconds);
+
+      if (visEnd > visStart) {
+        const framesPerSecond = peaks.numFrames / lane.seconds;
+        for (let ch = 0; ch < channels; ch++) {
+          const y0 = top + pad + ch * chHeight;
+          ctx.beginPath();
+          PeaksPainter.renderPixelStrips(ctx, peaks, ch, {
+            u0: visStart * framesPerSecond,
+            u1: visEnd * framesPerSecond,
+            // Peaks are normalised to ±1.
+            v0: -1,
+            v1: 1,
+            x0: secondsToX(visStart),
+            x1: secondsToX(visEnd),
+            y0,
+            y1: y0 + chHeight,
+          });
+          ctx.fill();
+        }
       }
       ctx.restore();
 
