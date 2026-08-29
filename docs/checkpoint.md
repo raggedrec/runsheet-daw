@@ -1,4 +1,4 @@
-# Run Sheet DAW — checkpoint, 29 Aug 2026
+# Run Sheet DAW — checkpoint, 29 Aug 2026 (handed to Claude Code)
 
 Written so the next session doesn't rediscover any of this. Read this before touching audio.
 
@@ -14,7 +14,15 @@ Written so the next session doesn't rediscover any of this. Read this before tou
 - Light/dark skins, accent, lane height — persisted per browser.
 - Sample cache: second open of a song does no network and no decoding.
 - Session save (`Project.toArrayBuffer()` → Supabase storage).
-- `npm test` — 52 assertions, no browser, ~1s.
+- Effects: add and remove openDAW devices per track, and edit every parameter.
+  Generic panel driven by each adapter's `namedParameter`, with values printed
+  by openDAW's own `getPrintValue()` so a synced delay reads "1/8" not 0.25.
+- Mixer and devices share one panel; the track list on the left toggles between
+  them.
+- Timeline horizontal zoom (powers of two), shift-wheel to scroll.
+- Track names editable by double-click; writes to openDAW's label too.
+- Idea Drop browser, grouped by role.
+- `npm test` — 68 assertions, no browser, ~1s.
 - `npm run dev` works locally; the dev server sets the COOP/COEP headers openDAW needs.
 
 ## Doesn't work / not built
@@ -89,6 +97,23 @@ acting on it** — if LGPL holds, the DAW could live inside Run Sheet privately.
   of it permanently forecloses the option above.
 - The Figma "DAW Studio Recording UI Pack" — Community licence unchecked. Layout ideas only.
 
+## Two bugs, one shape — worth remembering
+
+Both came from something being computed in two places that should have been
+derived from one:
+
+- The transport had a React flag, an AudioContext clock and the engine's
+  observables all with an opinion about whether the song was moving. The clock
+  ticked convincingly over a stopped engine and hid a broken record path for
+  most of a day. Fixed by `useTransport` owning it.
+- The timeline passed PeaksPainter the visible slice as audio frames but the
+  whole file's width as pixels. It stretched eight seconds across four minutes,
+  which looks right at scroll 0 and wrong everywhere else. Fixed by deriving
+  both ranges from the same two numbers.
+
+When something looks right in one state and wrong in another, suspect two
+sources before suspecting the library.
+
 ## Design decisions worth not re-litigating
 
 - Takes are **16-bit WAV**, not MP3: a take is the master everything else derives from. Costs
@@ -98,6 +123,10 @@ acting on it** — if LGPL holds, the DAW could live inside Run Sheet privately.
   transport.
 - The mix lives in openDAW's boxes and nowhere else. React holds no second copy.
 - `docs/ui-target.md` holds the layout target from Shayne's mockup.
+- Musical keys are never uppercased: Cm is not CM, Bb is not BB. `formatKey`
+  in `src/naming.ts`, with tests.
+- Device parameters are a generic list rather than twenty bespoke device UIs.
+  A threshold you can move and hear beats a graphic you can't.
 
 ## Outstanding elsewhere
 

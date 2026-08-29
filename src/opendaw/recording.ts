@@ -189,6 +189,18 @@ function engineState(project: Project): string {
 }
 
 /**
+ * Engine traces for working out why a take did or didn't roll. They matter
+ * while developing against openDAW's transport; they're noise in a shipped
+ * app. `import.meta.env.DEV` is a compile-time constant, so the production
+ * minifier drops both the call and the engineState() work behind it.
+ */
+function trace(label: string, project: Project): void {
+  if (import.meta.env.DEV) {
+    console.debug(label, engineState(project));
+  }
+}
+
+/**
  * Roll first, then arm.
  *
  * Four attempts got this backwards. Every one of them called
@@ -216,7 +228,7 @@ export async function startRecording(project: Project, countIn: boolean): Promis
   }
 
   const { engine } = project;
-  console.debug("[RunSheet] before play:", engineState(project));
+  trace("[RunSheet] before play:", project);
 
   // 1. Roll the transport, unless a count-in is meant to start it.
   if (!countIn && !engine.isPlaying.getValue()) {
@@ -232,7 +244,7 @@ export async function startRecording(project: Project, countIn: boolean): Promis
       );
     }
   }
-  console.debug("[RunSheet] after play:", engineState(project));
+  trace("[RunSheet] after play:", project);
 
   // 2. Arm, into a transport that is already moving.
   project.startRecording(countIn);
@@ -240,7 +252,7 @@ export async function startRecording(project: Project, countIn: boolean): Promis
   const armBy = Date.now() + 4000;
   while (Date.now() < armBy) {
     if (engine.isRecording.getValue() || engine.isCountingIn.getValue()) {
-      console.debug("[RunSheet] recording:", engineState(project));
+      trace("[RunSheet] recording:", project);
       return;
     }
     await new Promise((resolve) => setTimeout(resolve, 50));
