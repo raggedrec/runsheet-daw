@@ -39,6 +39,11 @@ export interface TimelineProps {
   muted: ReadonlySet<string>;
   soloed: ReadonlySet<string>;
   onScrub: (seconds: number) => void;
+  /** 1 = whole song across the width. 8 = eight times closer. */
+  zoom: number;
+  /** Seconds at the left edge. */
+  scroll: number;
+  onScroll: (seconds: number) => void;
   /** 0 when a tracks column beside the timeline draws the labels instead. */
   gutter?: number;
 }
@@ -46,6 +51,7 @@ export interface TimelineProps {
 export function Timeline({
   lanes, skin, accent, laneHeight, position, duration, bpm, muted, soloed, onScrub,
   gutter = GUTTER,
+  zoom, scroll, onScroll,
 }: TimelineProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const wrapRef = useRef<HTMLDivElement | null>(null);
@@ -86,7 +92,14 @@ export function Timeline({
 
     const trackX = gutter;
     const trackW = width - gutter;
-    const secondsToX = (s: number) => trackX + (duration > 0 ? (s / duration) * trackW : 0);
+    /*
+     * The visible window, not the whole song. At zoom 1 they're the same; past
+     * that the width shows `duration / zoom` seconds starting at `scroll`.
+     */
+    const visible = duration / Math.max(1, zoom);
+    const from = Math.max(0, Math.min(scroll, Math.max(0, duration - visible)));
+    const to = from + visible;
+    const secondsToX = (s: number) => trackX + (visible > 0 ? ((s - from) / visible) * trackW : 0);
 
     // --- lanes ------------------------------------------------------------
     lanes.forEach((lane, i) => {
@@ -102,7 +115,6 @@ export function Timeline({
        * stretching it to the full width — is what makes a short stem look
        * short instead of slow.
        */
-      const laneW = duration > 0 ? (lane.seconds / duration) * trackW : trackW;
       const { peaks } = lane;
       const channels = Math.min(peaks.numChannels, 2);
       const pad = 3;
@@ -121,13 +133,18 @@ export function Timeline({
         ctx.beginPath();
         PeaksPainter.renderPixelStrips(ctx, peaks, ch, {
           // Units are sample frames; the whole file maps onto its own width.
-          u0: 0,
-          u1: peaks.numFrames,
+          /*
+           * Draw only the visible slice of the file. Passing the whole file
+           * and letting the canvas clip would decode peaks for four minutes to
+           * show eight seconds of them.
+           */
+          u0: (from / lane.seconds) * peaks.numFrames,
+          u1: (to / lane.seconds) * peaks.numFrames,
           // Peaks are normalised to ±1.
           v0: -1,
           v1: 1,
-          x0: trackX,
-          x1: trackX + Math.max(1, laneW),
+          x0: secondsToX(0),
+          x1: secondsToX(lane.seconds),
           y0,
           y1: y0 + chHeight,
         });
@@ -146,13 +163,15 @@ export function Timeline({
     if (bpm && duration > 0) {
       const secondsPerBeat = 60 / bpm;
       const secondsPerBar = secondsPerBeat * 4;
-      const pxPerBar = (secondsPerBar / duration) * trackW;
+      const pxPerBar = (secondsPerBar / visible) * trackW;
       // Below ~9px a beat line per beat is a grey wash, so only bars are drawn.
       const drawBeats = pxPerBar / 4 > 9;
       const top = RULER_HEIGHT;
       const bottom = height;
 
-      for (let bar = 0; secondsPerBar * bar <= duration; bar++) {
+      const firstBar = Math.max(0, Math.floor(from / secondsPerBar));
+      const lastBar = Math.ceil(to / secondsPerBar);
+      for (let bar = firstBar; bar <= lastBar; bar++) {
         const x = Math.round(secondsToX(secondsPerBar * bar)) + 0.5;
         ctx.strokeStyle = skin.gridBar;
         ctx.lineWidth = 1;
@@ -182,13 +201,14 @@ export function Timeline({
 
     if (bpm && duration > 0) {
       const secondsPerBar = (60 / bpm) * 4;
-      const pxPerBar = (secondsPerBar / duration) * trackW;
+      const pxPerBar = (secondsPerBar / visible) * trackW;
       // Label every bar, or every 2/4/8/… so labels never collide.
       const step = Math.max(1, 2 ** Math.ceil(Math.log2(46 / Math.max(pxPerBar, 1))));
       ctx.font = `600 10px ${font.mono}`;
       ctx.textBaseline = "middle";
       ctx.fillStyle = skin.fgSubtle;
-      for (let bar = 0; secondsPerBar * bar <= duration; bar += step) {
+      const first = Math.max(0, Math.floor(from / secondsPerBar / step) * step);
+      for (let bar = first; secondsPerBar * bar <= to; bar += step) {
         const x = secondsToX(secondsPerBar * bar);
         ctx.fillText(String(bar + 1), x + 4, RULER_HEIGHT / 2);
         ctx.fillRect(Math.round(x) + 0.5, RULER_HEIGHT - 7, 1, 6);
@@ -231,7 +251,7 @@ export function Timeline({
     ctx.lineTo(px, 8);
     ctx.closePath();
     ctx.fill();
-  }, [lanes, skin, accent, laneHeight, position, duration, bpm, audible, height, gutter]);
+  }, [lanes, skin, accent, laneHeight, position, duration, bpm, audible, height, gutter, zoom, scroll]);
 
   useEffect(() => {
     draw();
@@ -256,9 +276,11 @@ export function Timeline({
       const x = clientX - rect.left - gutter;
       const w = rect.width - gutter;
       if (w <= 0) return;
-      onScrub(Math.min(duration, Math.max(0, (x / w) * duration)));
+      const visible = duration / Math.max(1, zoom);
+      const from = Math.max(0, Math.min(scroll, Math.max(0, duration - visible)));
+      onScrub(Math.min(duration, Math.max(0, from + (x / w) * visible)));
     },
-    [duration, onScrub, gutter],
+    [duration, onScrub, gutter, zoom, scroll],
   );
 
   const onPointerDown = useCallback(
@@ -283,6 +305,14 @@ export function Timeline({
       ref={wrapRef}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
+      onWheel={(e) => {
+        // Horizontal wheel, or shift+wheel — what a trackpad and a mouse each
+        // already do for scrolling sideways.
+        const delta = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.shiftKey ? e.deltaY : 0;
+        if (delta === 0) return;
+        const visible = duration / Math.max(1, zoom);
+        onScroll(Math.max(0, Math.min(duration - visible, scroll + (delta / 400) * visible)));
+      }}
       style={{
         position: "relative",
         width: "100%",

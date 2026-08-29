@@ -30,6 +30,8 @@ export interface TransportBarProps {
   busy: boolean;
   look: Look;
   onLook: (patch: Partial<Look>) => void;
+  zoom: number;
+  onZoom: (zoom: number) => void;
   onPlayStop: () => void;
   onRewind: () => void;
   onRecord: () => void;
@@ -180,6 +182,33 @@ export function TransportBar(p: TransportBarProps) {
       >
         {p.saveState === "saving" ? "Saving…" : p.saveState === "saved" ? "Saved" : p.saveState === "failed" ? "Retry save" : "Save"}
       </button>
+
+      {/*
+        Horizontal zoom. Powers of two rather than a free slider: a timeline
+        that lands on 3.7x is a timeline you can't return to, and every step
+        here halves what's on screen.
+      */}
+      <label
+        style={{
+          display: "flex", alignItems: "center", gap: 6,
+          font: `600 ${size.xs}px ${font.body}`, letterSpacing: ".08em",
+          textTransform: "uppercase", color: skin.fgSubtle,
+        }}
+      >
+        Zoom
+        <input
+          type="range"
+          min={0} max={6} step={1}
+          value={Math.round(Math.log2(p.zoom))}
+          onChange={(e) => p.onZoom(2 ** Number(e.target.value))}
+          onDoubleClick={() => p.onZoom(1)}
+          title="Zoom — double-click to fit the song"
+          style={{ width: 70, accentColor: skin.fgMuted }}
+        />
+        <span style={{ font: `500 ${size.xs}px ${font.mono}`, width: 24, color: skin.fgMuted }}>
+          {p.zoom}×
+        </span>
+      </label>
 
       <LookControls skin={skin} look={p.look} onLook={p.onLook} />
 

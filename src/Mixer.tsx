@@ -13,12 +13,13 @@
  * Writes go inside project.editing.modify(), because openDAW refuses box
  * writes outside a transaction.
  */
-import { useCallback } from "react";
+import { useCallback, useState } from "react";
 import type { Project } from "@opendaw/studio-core";
 import { AudioUnitBoxAdapter } from "@opendaw/studio-adapters";
 import type { AudioUnitBox } from "@opendaw/studio-boxes";
 import type { LoadedLane } from "./opendaw/loadSong";
 import { font, laneColorFor, radius, size, space, type Skin } from "./theme";
+import { DeviceView } from "./DeviceView";
 
 export interface MixerProps {
   project: Project;
@@ -31,13 +32,19 @@ export interface MixerProps {
 
 export function Mixer({ project, lanes, skin, accent, revision, onChanged }: MixerProps) {
   /*
-   * The output unit, found by asking rather than assuming an index. Track
-   * order changes as takes are added; "the last one" would silently become
-   * the wrong strip.
+   * One panel, two views. Clicking a track name in the list swaps the strips
+   * for that track's devices; clicking it again goes back. The mixer and the
+   * devices are the same question asked at different resolutions — "how does
+   * this track sound" — so they share the space rather than competing for it.
    */
-  const master = project.rootBoxAdapter.audioUnits
-    .adapters()
-    .find((a) => a.isOutput);
+  const [openTrack, setOpenTrack] = useState<string | null>(null);
+
+  const master = project.rootBoxAdapter.audioUnits.adapters().find((a) => a.isOutput);
+  const open = openTrack ? lanes.find((l) => l.fileId === openTrack) ?? null : null;
+  const openAdapter = open
+    ? project.rootBoxAdapter.audioUnits.adapters().find((a) => a.box === open.unit)
+    : undefined;
+  const devices = openAdapter?.audioEffects.mapOr((c) => c.adapters(), () => []) ?? [];
 
   return (
     <section
@@ -46,49 +53,102 @@ export function Mixer({ project, lanes, skin, accent, revision, onChanged }: Mix
         border: `1px solid ${skin.border}`,
         borderRadius: radius.md,
         overflow: "hidden",
+        display: "flex",
       }}
     >
-      <h2
+      {/* The track list, always present, so the way back is where the way in
+          was. */}
+      <div
         style={{
-          font: `600 ${size.xs}px ${font.body}`,
-          letterSpacing: ".08em", textTransform: "uppercase",
-          color: skin.fgSubtle,
-          margin: 0, padding: `${space[3]}px ${space[4]}px`,
-          borderBottom: `1px solid ${skin.border}`,
+          width: 130, flex: "0 0 auto",
+          borderRight: `1px solid ${skin.border}`,
+          background: skin.surfaceSunken,
+          padding: space[2],
+          overflowY: "auto",
         }}
       >
-        Mixer
-      </h2>
+        <h2
+          style={{
+            font: `600 ${size.xs}px ${font.body}`,
+            letterSpacing: ".08em", textTransform: "uppercase",
+            color: skin.fgSubtle, margin: `${space[1]}px 0 ${space[2]}px ${space[2]}px`,
+          }}
+        >
+          {open ? "Devices" : "Mixer"}
+        </h2>
 
-      {/* Scrolls sideways rather than shrinking strips to unusable widths —
-          a 30px fader is a decoration. */}
-      <div style={{ display: "flex", gap: 1, overflowX: "auto", padding: space[3], background: skin.surfaceSunken }}>
-        {lanes.map((lane) => (
-          <Strip
-            key={lane.fileId}
+        {lanes.map((lane) => {
+          const isOpen = openTrack === lane.fileId;
+          return (
+            <button
+              key={lane.fileId}
+              onClick={() => setOpenTrack(isOpen ? null : lane.fileId)}
+              title={isOpen ? "Back to the mixer" : `Devices on ${lane.name}`}
+              style={{
+                display: "flex", alignItems: "center", gap: 8,
+                width: "100%", textAlign: "left",
+                padding: "5px 8px", marginBottom: 1,
+                background: isOpen ? skin.surface : "transparent",
+                border: "none", borderRadius: radius.sm, cursor: "pointer",
+                font: `600 ${size.sm}px ${font.body}`,
+                color: isOpen ? skin.fg : skin.fgMuted,
+              }}
+            >
+              <span
+                style={{
+                  width: 3, height: 14, borderRadius: 2, flex: "0 0 auto",
+                  background: laneColorFor(lane.name),
+                }}
+              />
+              {lane.name.toUpperCase()}
+            </button>
+          );
+        })}
+      </div>
+
+      <div style={{ flex: 1, minWidth: 0, background: skin.surfaceSunken }}>
+        {open ? (
+          <DeviceView
             project={project}
-            unit={lane.unit}
-            name={lane.name}
-            colour={laneColorFor(lane.name)}
+            devices={devices}
+            trackName={open.name}
             skin={skin}
             accent={accent}
             revision={revision}
             onChanged={onChanged}
           />
-        ))}
+        ) : (
+          /* Scrolls sideways rather than shrinking strips to unusable widths —
+             a 30px fader is a decoration. */
+          <div style={{ display: "flex", gap: 1, overflowX: "auto", padding: space[3] }}>
+            {lanes.map((lane) => (
+              <Strip
+                key={lane.fileId}
+                project={project}
+                unit={lane.unit}
+                name={lane.name}
+                colour={laneColorFor(lane.name)}
+                skin={skin}
+                accent={accent}
+                revision={revision}
+                onChanged={onChanged}
+              />
+            ))}
 
-        {master && (
-          <Strip
-            project={project}
-            unit={master.box}
-            name="Master"
-            colour={skin.borderStrong}
-            skin={skin}
-            accent={accent}
-            revision={revision}
-            onChanged={onChanged}
-            isMaster
-          />
+            {master && (
+              <Strip
+                project={project}
+                unit={master.box}
+                name="Master"
+                colour={skin.borderStrong}
+                skin={skin}
+                accent={accent}
+                revision={revision}
+                onChanged={onChanged}
+                isMaster
+              />
+            )}
+          </div>
         )}
       </div>
     </section>
@@ -172,6 +232,14 @@ function Strip({
         label underneath read as a second fader at a glance, which is the one
         mistake a mixer strip must not make.
       */}
+      {/*
+        Master gets an empty row of the same height rather than a pan control.
+        There is nothing to pan at the output, but a strip that is one control
+        shorter puts its fader at a different height from every other strip,
+        and a mixer whose faders don't line up is unreadable at a glance.
+      */}
+      {isMaster && <div style={{ height: 20, width: "100%" }} />}
+
       {!isMaster && (
         <label style={{ display: "flex", alignItems: "center", gap: 6, width: "100%" }}>
           <input

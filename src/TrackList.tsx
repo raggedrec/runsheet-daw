@@ -10,6 +10,7 @@
  * Row height is `laneHeight` exactly, because two columns that disagree by a
  * pixel per row are visibly wrong by the fourth track.
  */
+import { useState } from "react";
 import { font, laneColorFor, radius, size, type Skin } from "./theme";
 import type { LoadedLane } from "./opendaw/loadSong";
 
@@ -30,11 +31,12 @@ export interface TrackListProps {
   onSolo: (lane: LoadedLane) => void;
   onArm: (lane: LoadedLane) => void;
   onSelect: (lane: LoadedLane) => void;
+  onRename: (lane: LoadedLane, name: string) => void;
   selected: string | null;
 }
 
 export function TrackList({
-  lanes, skin, accent, laneHeight, muted, soloed, armed, onMute, onSolo, onArm, onSelect, selected,
+  lanes, skin, accent, laneHeight, muted, soloed, armed, onMute, onSolo, onArm, onSelect, onRename, selected,
 }: TrackListProps) {
   return (
     <div
@@ -80,26 +82,18 @@ export function TrackList({
               }}
             />
 
-            {/* Clicking the name selects the track, which is what the effects
-                rack follows. A whole-row click would fight the M/S/R buttons. */}
-            <button
-              onClick={() => onSelect(lane)}
-              title={lane.name}
-              style={{
-                paddingLeft: 14,
-                textAlign: "left",
-                background: "transparent",
-                border: "none",
-                cursor: "pointer",
-                padding: "0 0 0 14px",
-                font: `600 ${size.sm}px ${font.body}`,
-                letterSpacing: ".05em",
-                color: audible ? skin.fg : skin.fgSubtle,
-                overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
-              }}
-            >
-              {lane.name.toUpperCase()}
-            </button>
+            {/*
+              Click selects, double-click renames. A stem arrives named after
+              its file — "Aco" for an acoustic guitar — and the name a musician
+              wants is rarely the one the exporter chose.
+            */}
+            <TrackName
+              lane={lane}
+              skin={skin}
+              audible={audible}
+              onSelect={() => onSelect(lane)}
+              onRename={(name) => onRename(lane, name)}
+            />
 
             <div style={{ display: "flex", gap: 4, paddingLeft: 14 }}>
               <Toggle
@@ -168,6 +162,74 @@ function Toggle({
       }}
     >
       {label}
+    </button>
+  );
+}
+
+function TrackName({
+  lane, skin, audible, onSelect, onRename,
+}: {
+  lane: LoadedLane;
+  skin: Skin;
+  audible: boolean;
+  onSelect: () => void;
+  onRename: (name: string) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(lane.name);
+
+  const commit = () => {
+    setEditing(false);
+    const trimmed = draft.trim();
+    // An empty name is a track you can't find later, so it reverts instead.
+    if (trimmed.length > 0 && trimmed !== lane.name) onRename(trimmed);
+    else setDraft(lane.name);
+  };
+
+  if (editing) {
+    return (
+      <input
+        autoFocus
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={commit}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") commit();
+          // Escape abandons the edit — the standard escape hatch, and without
+          // it a mistyped name can only be fixed by typing the old one back.
+          if (e.key === "Escape") {
+            setDraft(lane.name);
+            setEditing(false);
+          }
+        }}
+        style={{
+          marginLeft: 14, marginRight: 8,
+          font: `600 ${size.sm}px ${font.body}`,
+          color: skin.fg, background: skin.surfaceSunken,
+          border: `1px solid ${skin.borderStrong}`,
+          borderRadius: radius.sm, padding: "1px 4px", width: "calc(100% - 22px)",
+        }}
+      />
+    );
+  }
+
+  return (
+    <button
+      onClick={onSelect}
+      onDoubleClick={() => {
+        setDraft(lane.name);
+        setEditing(true);
+      }}
+      title={`${lane.name} — double-click to rename`}
+      style={{
+        textAlign: "left", background: "transparent", border: "none",
+        cursor: "pointer", padding: "0 0 0 14px",
+        font: `600 ${size.sm}px ${font.body}`, letterSpacing: ".05em",
+        color: audible ? skin.fg : skin.fgSubtle,
+        overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+      }}
+    >
+      {lane.name.toUpperCase()}
     </button>
   );
 }

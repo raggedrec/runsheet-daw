@@ -80,6 +80,9 @@ export default function DawApp() {
   const [showLog, setShowLog] = useState(false);
   /** The track whose effects chain is on screen. */
   const [selected, setSelected] = useState<LoadedLane | null>(null);
+  /** Horizontal zoom: 1 = whole song across the width. */
+  const [zoom, setZoom] = useState(1);
+  const [scroll, setScroll] = useState(0);
 
   /*
    * The log opens itself the first time something goes wrong, and stays shut
@@ -212,6 +215,28 @@ export default function DawApp() {
 
 
   const bump = useCallback(() => setMixRevision((n) => n + 1), []);
+
+  /**
+   * Rename a track.
+   *
+   * Two places have to agree: openDAW's own label, so a saved session comes
+   * back with the right name, and the lane, which is what every panel reads.
+   * Writing only one of them is how a mixer strip ends up disagreeing with the
+   * track list above it.
+   */
+  const renameLane = useCallback(
+    (lane: LoadedLane, name: string) => {
+      if (!session) return;
+      session.project.editing.modify(() => {
+        const label = (lane.unit as unknown as { label?: { setValue: (v: string) => void } }).label;
+        label?.setValue(name);
+      });
+      setLanes((current) => current.map((l) => (l === lane ? { ...l, name } : l)));
+      setSelected((current) => (current === lane ? { ...current, name } : current));
+      bump();
+    },
+    [session, bump],
+  );
 
   const toggleMute = useCallback(
     (lane: LoadedLane) => {
@@ -527,6 +552,8 @@ export default function DawApp() {
             busy={busy}
             look={look}
             onLook={setLook}
+            zoom={zoom}
+            onZoom={(z) => { setZoom(z); if (z === 1) setScroll(0); }}
             onPlayStop={transport.toggle}
             onRewind={transport.rewind}
             onRecord={() => void record()}
@@ -635,6 +662,7 @@ export default function DawApp() {
                 onSolo={toggleSolo}
                 onArm={toggleArm}
                 onSelect={setSelected}
+              onRename={renameLane}
                 selected={selected?.fileId ?? null}
               />
               <div style={{ flex: 1, minWidth: 0 }}>
@@ -650,6 +678,9 @@ export default function DawApp() {
                   soloed={audible.soloed}
                   onScrub={transport.seek}
                   gutter={0}
+                  zoom={zoom}
+                  scroll={scroll}
+                  onScroll={setScroll}
                 />
               </div>
             </div>
