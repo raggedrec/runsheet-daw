@@ -20,6 +20,7 @@ import type { AudioUnitBox } from "@opendaw/studio-boxes";
 import type { LoadedLane } from "./opendaw/loadSong";
 import type { InputDevice } from "./opendaw/recording";
 import { useInputMeter } from "./useInputMeter";
+import { useMasterMeter } from "./useEngineMeter";
 import { font, laneColorFor, radius, size, space, type Skin } from "./theme";
 import { DeviceView } from "./DeviceView";
 import { EffectsRack } from "./EffectsRack";
@@ -45,6 +46,7 @@ export function Mixer({ project, lanes, skin, accent, revision, onChanged, input
    * this track sound" — so they share the space rather than competing for it.
    */
   const [openTrack, setOpenTrack] = useState<string | null>(null);
+  const masterLevel = useMasterMeter(project);
 
   const master = project.rootBoxAdapter.audioUnits.adapters().find((a) => a.isOutput);
   const open = openTrack ? lanes.find((l) => l.fileId === openTrack) ?? null : null;
@@ -169,6 +171,7 @@ export function Mixer({ project, lanes, skin, accent, revision, onChanged, input
                 revision={revision}
                 onChanged={onChanged}
                 isMaster
+                meterLevel={masterLevel}
               />
             )}
           </div>
@@ -179,7 +182,7 @@ export function Mixer({ project, lanes, skin, accent, revision, onChanged, input
 }
 
 function Strip({
-  project, unit, name, colour, skin, accent, revision, onChanged, isMaster = false,
+  project, unit, name, colour, skin, accent, revision, onChanged, isMaster = false, meterLevel,
 }: {
   project: Project;
   unit: AudioUnitBox;
@@ -190,6 +193,8 @@ function Strip({
   revision: number;
   onChanged: () => void;
   isMaster?: boolean;
+  /** Master output peak, 0..1, when this is the master strip. */
+  meterLevel?: number;
 }) {
   void revision; // the trigger to re-read; values always come from the graph
   const volume = unit.volume.getValue();
@@ -275,6 +280,9 @@ function Strip({
             style={{ width: "100%", height: 3, margin: 0, accentColor: skin.fgMuted }}
           />
         )}
+        {/* Master's pan row has nothing to pan, so its output meter lives here —
+            keeping the fader aligned while giving the level somewhere to sit. */}
+        {isMaster && meterLevel !== undefined && <MasterMeterBar skin={skin} level={meterLevel} />}
       </div>
 
       {/*
@@ -395,6 +403,30 @@ function InputPicker({
         <InputMeterBar skin={skin} level={meter.level} sawSignal={meter.sawSignal} error={meter.error} />
       </div>
     </div>
+  );
+}
+
+/** The master output peak, same dB mapping as the input bar. */
+function MasterMeterBar({ skin, level }: { skin: Skin; level: number }) {
+  const db = level > 0 ? 20 * Math.log10(level) : -Infinity;
+  const filled = Number.isFinite(db) ? Math.max(0, Math.min(1, (db + 60) / 60)) : 0;
+  const hot = db > -3;
+  return (
+    <span
+      title="Master output"
+      style={{
+        position: "relative", height: 6, width: "100%",
+        background: skin.slot, borderRadius: 999, overflow: "hidden",
+      }}
+    >
+      <span
+        style={{
+          position: "absolute", inset: 0,
+          transformOrigin: "left center", transform: `scaleX(${filled})`,
+          background: hot ? "#C0453B" : "#3B9E5A",
+        }}
+      />
+    </span>
   );
 }
 
