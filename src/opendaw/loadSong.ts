@@ -35,6 +35,43 @@ const noTransients: TransientProtocol = {
   detect: async () => [],
 };
 
+/**
+ * Which openDAW sample an Idea Drop file was imported as.
+ *
+ * Without this, every reload fetches ~9 MB per stem, decodes it, and writes a
+ * FRESH copy into openDAW's storage under a new id. Nothing ever removes the
+ * old ones, so the store grows on every reload and each write gets slower —
+ * which is exactly the loader getting slower and eventually appearing to hang.
+ *
+ * Idea Drop file ids are stable, so remembering the mapping means the second
+ * open of a song does no network and no decoding at all: the audio and its
+ * peaks are read straight back out of the store.
+ *
+ * localStorage rather than the database: it describes what this browser has
+ * cached, which is not true of any other browser and not worth syncing.
+ */
+const CACHE_KEY = "runsheet-daw-samples";
+
+function readCache(): Record<string, string> {
+  try {
+    const raw = window.localStorage.getItem(CACHE_KEY);
+    return raw ? (JSON.parse(raw) as Record<string, string>) : {};
+  } catch {
+    return {};
+  }
+}
+
+function rememberSample(fileId: string, sampleUuid: string): void {
+  try {
+    const cache = readCache();
+    cache[fileId] = sampleUuid;
+    window.localStorage.setItem(CACHE_KEY, JSON.stringify(cache));
+  } catch {
+    // Private browsing, or the quota is full. Losing the cache costs a slow
+    // load, not a broken one.
+  }
+}
+
 export interface LoadedLane {
   name: string;
   fileId: string;
@@ -94,6 +131,28 @@ export async function loadSongIntoProject(
   for (const [i, file] of files.entries()) {
     onProgress?.({ index: i + 1, total: files.length, name: file.name });
 
+    /*
+     * Already imported in this browser? Then skip the download and the decode
+     * entirely — the audio, its peaks and its metadata are all in the store.
+     */
+    const cachedUuid = readCache()[file.id];
+    if (cachedUuid !== undefined) {
+      const uuid = UUID.parse(cachedUuid);
+      if (await SampleStorage.get().exists(uuid)) {
+        const [audio, peaks, meta] = await SampleStorage.get().load(uuid);
+        prepared.push({
+          file,
+          // The store's own metadata, so a cached sample and a fresh one carry
+          // the same shape downstream.
+          sample: { uuid: cachedUuid, name: meta.name, duration: meta.duration, bpm: meta.bpm } as Sample,
+          audio,
+          peaks,
+          uuid,
+        });
+        continue;
+      }
+    }
+
     const url = await signedUrl(file.storagePath);
     const response = await fetch(url);
     if (!response.ok) {
@@ -115,6 +174,7 @@ export async function loadSongIntoProject(
 
     const uuid = UUID.parse(sample.uuid);
     const [audio, peaks] = await SampleStorage.get().load(uuid);
+    rememberSample(file.id, sample.uuid);
     prepared.push({ file, sample, audio, peaks, uuid });
   }
 
