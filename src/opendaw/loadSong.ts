@@ -233,3 +233,59 @@ export async function loadSongIntoProject(
   await project.engine.queryLoadingComplete();
   return lanes;
 }
+
+/**
+ * Rebuilds the lane list from a reopened project, rather than from Run Sheet's
+ * file list.
+ *
+ * A saved session is the source of truth for what a mix contains: tracks may
+ * have been renamed, reordered, or had effects added since the stems were first
+ * pulled in. So the lanes are read back out of the box graph — the audio units,
+ * the tracks they own, the audio regions on those tracks — not re-derived from
+ * the song's files.
+ *
+ * One lane per audio unit that carries an audio region. The master/output unit
+ * has none, so it drops out without needing to be recognised by name. Where a
+ * unit holds more than one region (a later take on the same track), the first is
+ * taken for the lane's waveform and length — the timeline's one-region-per-lane
+ * model is a limitation carried over from the fresh-load path, not new here.
+ *
+ * A unit whose audio file has no cached peaks (never imported in this browser)
+ * is skipped rather than drawn as a crash: its samples aren't in the store, so
+ * there is nothing to show or play until the stems are re-imported. Closing that
+ * gap — re-importing missing stems on reopen — is the next piece of this path.
+ *
+ * RUNTIME-UNVERIFIED: written from the installed type definitions. The
+ * reopen → playback loop has not been executed. Verify on the Mac with the
+ * engine log panel before trusting it; the checkpoint's warnings about guessing
+ * at openDAW's graph apply in full.
+ */
+export function lanesFromProject(project: Project): LoadedLane[] {
+  const lanes: LoadedLane[] = [];
+  for (const unit of project.rootBoxAdapter.audioUnits.adapters()) {
+    let added = false;
+    for (const track of unit.tracks.values()) {
+      for (const region of track.regions.adapters.values()) {
+        if (!region.isAudioRegion()) continue;
+        const file = region.file;
+        const peaks = file.peaks.unwrapOrNull();
+        if (peaks === null) continue;
+        lanes.push({
+          name: unit.label,
+          // Synthesised from the audio file's own id, which is stable across
+          // reopens. fileId is only ever an identity key here (selection, the
+          // armed lane, the "loaded" set) — never a Run Sheet file id on this
+          // path, so it is namespaced to say so.
+          fileId: `session:${UUID.toString(file.uuid)}`,
+          seconds: file.endInSeconds,
+          peaks,
+          unit: unit.box,
+        });
+        added = true;
+        break;
+      }
+      if (added) break;
+    }
+  }
+  return lanes;
+}

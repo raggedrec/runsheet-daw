@@ -8,8 +8,14 @@
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { boot, startAudio, BootError, type BootResult } from "./opendawBoot";
-import { createSession, type DawSession } from "./opendaw/session";
-import { loadSongIntoProject, tempoOf, type LoadedLane, type LoadProgress } from "./opendaw/loadSong";
+import { createSession, loadSessionProject, type DawSession } from "./opendaw/session";
+import {
+  loadSongIntoProject,
+  lanesFromProject,
+  tempoOf,
+  type LoadedLane,
+  type LoadProgress,
+} from "./opendaw/loadSong";
 import { loadSong, playableFiles, LoadError, type Song } from "./runsheet";
 import { isConfigured, requestedSong, supabase } from "./supabase";
 import { S } from "./styles";
@@ -26,7 +32,7 @@ import { EffectsRack } from "./EffectsRack";
 import { Browser } from "./Browser";
 import { useConsoleLog } from "./useConsoleLog";
 import { collectTakes } from "./opendaw/take";
-import { saveSession } from "./session";
+import { saveSession, loadSession } from "./session";
 import { uploadToIdeaDrop } from "./runsheet";
 import { useTransport } from "./useTransport";
 import {
@@ -180,6 +186,34 @@ export default function DawApp() {
           started.reason ?? "No reason was reported. Check the console.",
         );
       }
+      /*
+       * A saved mix wins over the stems, when there is one and it comes back
+       * with lanes. loadSessionProject rebuilds the whole graph — faders, pans,
+       * effects, region positions — from the buffer; lanesFromProject reads the
+       * lanes out of that graph rather than off Run Sheet's file list, so a
+       * renamed or reordered mix reopens as it was left.
+       *
+       * The fall-through is deliberate: if there is no saved session, or it
+       * loads but yields no drawable lanes (its samples were never imported in
+       * THIS browser, so there are no peaks), the fresh path runs and pulls the
+       * stems in. A reopen that shows nothing would be worse than one that
+       * quietly rebuilds from source.
+       *
+       * RUNTIME-UNVERIFIED: the reopen branch has not been exercised — localhost
+       * can't get past sign-in yet. Verify on the Mac with the engine log.
+       */
+      const saved = await loadSession(song);
+      if (saved) {
+        const reopened = await loadSessionProject(bootResult, saved);
+        const restored = lanesFromProject(reopened.project);
+        if (restored.length > 0) {
+          setSession(reopened);
+          setLanes(restored);
+          setStage({ name: "loaded" });
+          return;
+        }
+      }
+
       const created = await createSession(bootResult);
       setSession(created);
 

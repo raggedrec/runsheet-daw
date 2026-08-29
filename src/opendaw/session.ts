@@ -69,9 +69,18 @@ const soundfontProvider: SoundfontProvider = {
   },
 };
 
-export async function createSession(boot: BootResult): Promise<DawSession> {
-  const { audioContext } = boot;
-
+/**
+ * The six things a Project needs, assembled once.
+ *
+ * Both a fresh project (`Project.new`) and a reopened one
+ * (`Project.loadAnyVersion`) take the identical env — the only difference is
+ * whether the box graph is built empty or from a saved buffer. Extracting it
+ * keeps the two paths from drifting: a provider fixed for one is fixed for both.
+ */
+function buildProjectEnv(audioContext: AudioContext): {
+  env: Parameters<typeof Project.new>[0];
+  sampleService: SampleService;
+} {
   /*
    * BpmDetector.Unknown rather than the WASM detector.
    *
@@ -85,33 +94,70 @@ export async function createSession(boot: BootResult): Promise<DawSession> {
   const soundfontService = new SoundfontService();
   const soundfontManager = new GlobalSoundfontLoaderManager(soundfontProvider);
 
-  const project = Project.new({
-    audioContext,
-    audioWorklets: AudioWorklets.get(audioContext),
-    sampleManager,
-    soundfontManager,
+  return {
+    env: {
+      audioContext,
+      audioWorklets: AudioWorklets.get(audioContext),
+      sampleManager,
+      soundfontManager,
+      sampleService,
+      soundfontService,
+    },
     sampleService,
-    soundfontService,
-  });
+  };
+}
 
-  /*
-   * openDAW connects the worklet to the destination itself — the last lines of
-   * Project.startAudioWorklet do `worklet.connect(worklet.context.destination)`.
-   *
-   * An earlier version of this file connected it again, on the theory that a
-   * dead Play button meant an unconnected engine. That was wrong twice over:
-   * the node was already connected, and connecting a second time sums the
-   * engine with itself, +6 dB. Removed.
-   *
-   * The `restart` parameter is not a graph-change hook either. Reading the
-   * source: it is only invoked from the worklet's `error` and `processorerror`
-   * listeners — crash recovery, not a rebuild on record.
-   */
+/**
+ * Brings a Project's worklet up and waits for it to report ready.
+ *
+ * openDAW connects the worklet to the destination itself — the last lines of
+ * Project.startAudioWorklet do `worklet.connect(worklet.context.destination)`.
+ *
+ * An earlier version of this file connected it again, on the theory that a
+ * dead Play button meant an unconnected engine. That was wrong twice over:
+ * the node was already connected, and connecting a second time sums the
+ * engine with itself, +6 dB. Removed.
+ *
+ * The `restart` parameter is not a graph-change hook either. Reading the
+ * source: it is only invoked from the worklet's `error` and `processorerror`
+ * listeners — crash recovery, not a rebuild on record.
+ */
+async function bringUp(project: Project): Promise<void> {
   project.startAudioWorklet();
-
   // engine — the EngineFacade with play/stop/record — is only usable once the
   // worklet has reported ready.
   await project.engine.isReady();
+}
 
+export async function createSession(boot: BootResult): Promise<DawSession> {
+  const { audioContext } = boot;
+  const { env, sampleService } = buildProjectEnv(audioContext);
+  const project = Project.new(env);
+  await bringUp(project);
+  return { project, audioContext, sampleService };
+}
+
+/**
+ * Reopens a saved session in place of a fresh one.
+ *
+ * `loadAnyVersion` rather than `load`: it runs openDAW's version migrations, so
+ * a session saved by an older SDK still opens rather than throwing on a format
+ * bump. It is async for exactly that reason.
+ *
+ * The buffer carries the whole box graph — faders, pans, effects, regions — but
+ * NOT the audio. The engine finds audio through the sampleProvider, which reads
+ * SampleStorage by uuid. On the browser that first imported the stems those
+ * uuids are present, so a reopen plays. On a browser that has never seen the
+ * song the store is empty and the regions will be silent until the stems are
+ * re-imported — a gap the reload path does not yet close (see lanesFromProject).
+ */
+export async function loadSessionProject(
+  boot: BootResult,
+  buffer: ArrayBuffer,
+): Promise<DawSession> {
+  const { audioContext } = boot;
+  const { env, sampleService } = buildProjectEnv(audioContext);
+  const project = await Project.loadAnyVersion(env, buffer);
+  await bringUp(project);
   return { project, audioContext, sampleService };
 }
