@@ -179,44 +179,46 @@ export async function startRecording(project: Project, countIn: boolean): Promis
   project.startRecording(countIn);
 
   /*
-   * Now wait, because startRecording does not.
+   * Then roll the transport, in that order.
    *
-   * Project.startRecording calls `Recording.start(this, countIn).finally()`
-   * and returns immediately — fire and forget. Recording.start is async: it
-   * awaits prepareRecording on every capture, and only afterwards calls
-   * engine.prepareRecordingState(), which resets the transport.
+   * Recording.start calls capture.startRecording() — which is what logs
+   * "[RecordAudio] start" — and only afterwards engine.prepareRecordingState().
+   * prepareRecordingState ARMS the engine; isRecording does not become true
+   * until the transport is actually moving.
    *
-   * So anything done on the line after startRecording happens BEFORE the
-   * engine has been prepared, and is then wiped by the prepare that lands
-   * later. A play() call there is silently discarded — which is exactly what
-   * the engine log showed: [RecordAudio] start, and 800ms later isPlaying,
-   * isRecording and isCountingIn all false with position 0.
+   * A previous version waited for isRecording before calling play(). That is a
+   * deadlock: the flag needs playback, and playback was waiting on the flag.
+   * It presented as "the engine never started recording" while the capture
+   * side reported success.
+   *
+   * So: give Recording.start a moment to get through its awaits and reach
+   * prepareRecordingState, then start the transport once — once, not in a
+   * loop, because repeatedly calling play() on a preparing engine is a good
+   * way to produce the stuttering it was already producing.
    */
   const { engine } = project;
-  const deadline = Date.now() + 4000;
-  while (Date.now() < deadline) {
-    if (engine.isRecording.getValue() || engine.isCountingIn.getValue()) break;
-    await new Promise((resolve) => setTimeout(resolve, 40));
+  const settle = Date.now() + 1500;
+  while (Date.now() < settle) {
+    // With a count-in openDAW starts the transport itself; nothing to do.
+    if (engine.isPlaying.getValue() || engine.isCountingIn.getValue()) break;
+    await new Promise((resolve) => setTimeout(resolve, 50));
   }
 
-  if (!engine.isRecording.getValue() && !engine.isCountingIn.getValue()) {
-    throw new RecordingError(
-      "The engine never started recording.",
-      "openDAW prepared the input but the transport didn't arm. Check the engine log.",
-    );
-  }
-
-  /*
-   * Roll the transport. prepareRecordingState arms; it doesn't play. Without
-   * this the stems are silent, there is nothing to play along to, and the
-   * recorder captures against a stationary timeline.
-   *
-   * With a count-in openDAW starts the transport itself once the count
-   * finishes, so this only forces the case where nothing is moving.
-   */
-  if (!countIn && !engine.isPlaying.getValue()) {
+  if (!engine.isPlaying.getValue() && !engine.isCountingIn.getValue()) {
     engine.play();
   }
+
+  // Now the flag can be believed, because something is moving.
+  const deadline = Date.now() + 3000;
+  while (Date.now() < deadline) {
+    if (engine.isRecording.getValue() || engine.isCountingIn.getValue()) return;
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+
+  throw new RecordingError(
+    "The engine armed but never started recording.",
+    "The transport is rolling and the input is prepared, but isRecording stayed false. Check the engine log.",
+  );
 }
 
 /**
