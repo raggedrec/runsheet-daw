@@ -162,6 +162,35 @@ export function disarmAll(project: Project): void {
  * the transport before the stream is live and the take begins with a hole
  * exactly as long as the device took to open.
  */
+/** What the engine says about itself, for the log and for error messages. */
+function engineState(project: Project): string {
+  const e = project.engine;
+  return JSON.stringify({
+    isPlaying: e.isPlaying.getValue(),
+    isRecording: e.isRecording.getValue(),
+    isCountingIn: e.isCountingIn.getValue(),
+    position: e.position.getValue(),
+  });
+}
+
+/**
+ * Roll first, then arm.
+ *
+ * Four attempts got this backwards. Every one of them called
+ * project.startRecording() and then tried to start the transport, and every
+ * one failed with isRecording stuck false — while the plain Play button
+ * worked perfectly on its own.
+ *
+ * That difference is the clue. play() is not broken; it only fails to take
+ * AFTER startRecording. So prepareRecordingState is not a thing you follow
+ * with playback — it is a thing you apply to a transport that is already
+ * moving. Which is also how a musician thinks about it: the song is playing,
+ * you drop into record.
+ *
+ * So the order here is: start playback, confirm the engine agrees it is
+ * playing, and only then arm. Each step reports what the engine actually said,
+ * because four rounds of inferring it from behaviour is enough.
+ */
 export async function startRecording(project: Project, countIn: boolean): Promise<void> {
   const armed = project.captureDevices.filterArmed();
   if (armed.length === 0) {
@@ -171,53 +200,40 @@ export async function startRecording(project: Project, countIn: boolean): Promis
     );
   }
 
-  /*
-   * No prepareRecording() here. Recording.start does it itself — it awaits
-   * every armed capture's prepareRecording, then clears their recorded
-   * regions, then calls startRecording on each.
-   */
+  const { engine } = project;
+  console.debug("[RunSheet] before play:", engineState(project));
+
+  // 1. Roll the transport, unless a count-in is meant to start it.
+  if (!countIn && !engine.isPlaying.getValue()) {
+    engine.play();
+    const playBy = Date.now() + 2000;
+    while (Date.now() < playBy && !engine.isPlaying.getValue()) {
+      await new Promise((resolve) => setTimeout(resolve, 40));
+    }
+    if (!engine.isPlaying.getValue()) {
+      throw new RecordingError(
+        "The transport wouldn't start.",
+        `Play was called and the engine stayed stopped. State: ${engineState(project)}`,
+      );
+    }
+  }
+  console.debug("[RunSheet] after play:", engineState(project));
+
+  // 2. Arm, into a transport that is already moving.
   project.startRecording(countIn);
 
-  /*
-   * Then roll the transport, in that order.
-   *
-   * Recording.start calls capture.startRecording() — which is what logs
-   * "[RecordAudio] start" — and only afterwards engine.prepareRecordingState().
-   * prepareRecordingState ARMS the engine; isRecording does not become true
-   * until the transport is actually moving.
-   *
-   * A previous version waited for isRecording before calling play(). That is a
-   * deadlock: the flag needs playback, and playback was waiting on the flag.
-   * It presented as "the engine never started recording" while the capture
-   * side reported success.
-   *
-   * So: give Recording.start a moment to get through its awaits and reach
-   * prepareRecordingState, then start the transport once — once, not in a
-   * loop, because repeatedly calling play() on a preparing engine is a good
-   * way to produce the stuttering it was already producing.
-   */
-  const { engine } = project;
-  const settle = Date.now() + 1500;
-  while (Date.now() < settle) {
-    // With a count-in openDAW starts the transport itself; nothing to do.
-    if (engine.isPlaying.getValue() || engine.isCountingIn.getValue()) break;
-    await new Promise((resolve) => setTimeout(resolve, 50));
-  }
-
-  if (!engine.isPlaying.getValue() && !engine.isCountingIn.getValue()) {
-    engine.play();
-  }
-
-  // Now the flag can be believed, because something is moving.
-  const deadline = Date.now() + 3000;
-  while (Date.now() < deadline) {
-    if (engine.isRecording.getValue() || engine.isCountingIn.getValue()) return;
+  const armBy = Date.now() + 4000;
+  while (Date.now() < armBy) {
+    if (engine.isRecording.getValue() || engine.isCountingIn.getValue()) {
+      console.debug("[RunSheet] recording:", engineState(project));
+      return;
+    }
     await new Promise((resolve) => setTimeout(resolve, 50));
   }
 
   throw new RecordingError(
-    "The engine armed but never started recording.",
-    "The transport is rolling and the input is prepared, but isRecording stayed false. Check the engine log.",
+    "The engine never entered record.",
+    `The transport was rolling when record was armed. State: ${engineState(project)}`,
   );
 }
 
