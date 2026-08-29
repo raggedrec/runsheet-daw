@@ -13,7 +13,7 @@
  * Writes go inside project.editing.modify(), because openDAW refuses box
  * writes outside a transaction.
  */
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import type { Project } from "@opendaw/studio-core";
 import { AudioUnitBoxAdapter } from "@opendaw/studio-adapters";
 import type { AudioUnitBox } from "@opendaw/studio-boxes";
@@ -260,68 +260,32 @@ function Strip({
       </div>
 
       {/*
-        The pan row is one fixed-height slot in every strip, so the fader below
-        starts at the same y everywhere. A channel puts its pan control here;
-        master has nothing to pan and leaves it empty — but the SAME height, or
-        the faders don't line up down the row (the channel faders sat above the
-        master's before this, because a bare range input is shorter than this
-        row). Pan on one line, its value in the tooltip: a label beside or below
-        it reads as a second fader at a glance, the one mistake a strip mustn't
-        make.
+        Pan is a knob, one fixed-height slot so the fader below starts at the
+        same y in every strip. Master has nothing to pan and leaves the slot
+        empty — but the same height, or the faders stop lining up down the row.
       */}
-      <div style={{ height: 20, width: "100%", display: "flex", alignItems: "center" }}>
+      <div style={{ height: 32, width: "100%", display: "flex", alignItems: "center", justifyContent: "center" }}>
         {!isMaster && (
-          <input
-            type="range"
-            min={-1} max={1} step={0.01}
+          <PanKnob
             value={panning}
-            onChange={(e) => write(() => unit.panning.setValue(Number(e.target.value)))}
-            onDoubleClick={() => write(() => unit.panning.setValue(0))}
-            title={`Pan ${panLabel(panning)} — double-click to centre`}
-            style={{ width: "100%", height: 3, margin: 0, accentColor: skin.fgMuted }}
+            onChange={(v) => write(() => unit.panning.setValue(v))}
+            onReset={() => write(() => unit.panning.setValue(0))}
+            skin={skin}
+            accent={accent}
           />
         )}
       </div>
 
-      {/*
-        A vertical fader, via a rotated range input.
-        writing-mode is the modern way and Safari has been slow to it, so the
-        rotation is the fallback that works everywhere today. Ugly in the
-        markup, correct on screen.
-      */}
-      {/*
-        The rotated input's LAYOUT box is still 150 wide and ~20 tall — the
-        rotation is purely visual. Centring that box therefore does not centre
-        what you see, which is why the fader sat off to one side of a strip
-        whose other controls were centred. Positioning it from the middle and
-        translating back by half its own size centres the thing on screen
-        rather than the box the browser is reasoning about.
-      */}
-      <div style={{ height: 150, width: "100%", position: "relative" }}>
-        <input
-          type="range"
-          min={0} max={1} step={0.001}
-          value={AudioUnitBoxAdapter.VolumeMapper.x(volume)}
-          onChange={(e) =>
-            write(() => unit.volume.setValue(AudioUnitBoxAdapter.VolumeMapper.y(Number(e.target.value))))
-          }
-          onDoubleClick={() => write(() => unit.volume.setValue(AudioUnitBoxAdapter.VolumeMapper.y(UNITY)))}
-          title="Volume — double-click for unity"
-          style={{
-            position: "absolute",
-            left: "50%",
-            top: "50%",
-            width: 150,
-            margin: 0,
-            transform: "translate(-50%, -50%) rotate(-90deg)",
-            accentColor: isMaster ? skin.fgMuted : accent,
-          }}
+      {/* Fader (grooved cap + dB scale) with the master meter beside it. */}
+      <div style={{ display: "flex", justifyContent: "center", gap: 6, width: "100%", height: FADER_H }}>
+        <Fader
+          value01={AudioUnitBoxAdapter.VolumeMapper.x(volume)}
+          onChange01={(v) => write(() => unit.volume.setValue(AudioUnitBoxAdapter.VolumeMapper.y(v)))}
+          onReset={() => write(() => unit.volume.setValue(AudioUnitBoxAdapter.VolumeMapper.y(UNITY)))}
+          skin={skin}
+          accent={isMaster ? skin.fgMuted : accent}
         />
-        {/* Master output meter, vertical, beside the fader — fills from the
-            bottom like a real desk's meter. */}
-        {isMaster && meterLevel !== undefined && (
-          <MasterMeterVertical skin={skin} level={meterLevel} />
-        )}
+        {isMaster && meterLevel !== undefined && <MasterMeterVertical skin={skin} level={meterLevel} />}
       </div>
 
       <span
@@ -353,6 +317,168 @@ function panLabel(pan: number): string {
   const amount = Math.round(Math.abs(pan) * 100);
   if (amount < 2) return "C";
   return `${pan < 0 ? "L" : "R"}${amount}`;
+}
+
+const FADER_H = 150;
+const CAP_H = 20;
+
+/**
+ * A real fader: a grooved cap on a rail, with a dB scale beside it.
+ *
+ * Custom rather than a styled range input — a native thumb can't carry a grooved
+ * cap, a centre line and a drop shadow across the rotation the vertical trick
+ * needs, and the maths for "which dB is this pixel" wants to be ours anyway. The
+ * scale ticks sit exactly where the cap's centre lands for each mark (through
+ * the same VolumeMapper the cap uses), so the numbers mean what they say.
+ */
+function Fader({
+  value01, onChange01, onReset, skin, accent,
+}: {
+  value01: number;
+  onChange01: (v: number) => void;
+  onReset: () => void;
+  skin: Skin;
+  accent: string;
+}) {
+  const railRef = useRef<HTMLDivElement | null>(null);
+  const travel = FADER_H - CAP_H;
+  const capTop = (1 - value01) * travel;
+
+  const setFromClientY = useCallback(
+    (clientY: number) => {
+      const r = railRef.current?.getBoundingClientRect();
+      if (!r) return;
+      onChange01(1 - Math.max(0, Math.min(1, (clientY - r.top - CAP_H / 2) / travel)));
+    },
+    [onChange01, travel],
+  );
+
+  const onDown = useCallback(
+    (e: React.PointerEvent) => {
+      e.preventDefault();
+      setFromClientY(e.clientY);
+      const move = (ev: PointerEvent) => setFromClientY(ev.clientY);
+      const up = () => {
+        window.removeEventListener("pointermove", move);
+        window.removeEventListener("pointerup", up);
+      };
+      window.addEventListener("pointermove", move);
+      window.addEventListener("pointerup", up);
+    },
+    [setFromClientY],
+  );
+
+  const marks = [6, 0, -6, -12, -24, -48]
+    .map((db) => ({ db, x: AudioUnitBoxAdapter.VolumeMapper.x(db) }))
+    .filter((m) => m.x >= 0 && m.x <= 1);
+
+  return (
+    <div style={{ display: "flex", gap: 5, height: FADER_H }}>
+      <div
+        ref={railRef}
+        onPointerDown={onDown}
+        onDoubleClick={onReset}
+        title="Volume — double-click for unity"
+        style={{ position: "relative", width: 30, height: FADER_H, cursor: "ns-resize", touchAction: "none" }}
+      >
+        {/* rail, then the accent fill from the cap down */}
+        <div style={{ position: "absolute", left: "50%", top: 0, bottom: 0, width: 4, transform: "translateX(-50%)", background: skin.slot, borderRadius: 999 }} />
+        <div style={{ position: "absolute", left: "50%", top: capTop + CAP_H / 2, bottom: 0, width: 4, transform: "translateX(-50%)", background: accent, borderRadius: 999 }} />
+        {/* grooved cap with a centre line and a real drop shadow */}
+        <div
+          style={{
+            position: "absolute", left: "50%", top: capTop, transform: "translateX(-50%)",
+            width: 30, height: CAP_H, borderRadius: 3, border: "1px solid #0b0d10",
+            boxShadow: "0 2px 5px rgba(0,0,0,.55)",
+            backgroundImage:
+              "repeating-linear-gradient(180deg, rgba(255,255,255,.09) 0 1px, transparent 1px 3px), linear-gradient(180deg, #3d434a, #14171b)",
+          }}
+        >
+          <div style={{ position: "absolute", left: 2, right: 2, top: "50%", height: 2, transform: "translateY(-50%)", background: "#e8edf3", borderRadius: 1 }} />
+        </div>
+      </div>
+
+      {/* dB scale, aligned to where the cap centre sits for each mark */}
+      <div style={{ position: "relative", width: 22, height: FADER_H }}>
+        {marks.map(({ db, x }) => (
+          <div
+            key={db}
+            style={{
+              position: "absolute", top: (1 - x) * travel + CAP_H / 2, left: 0, right: 0,
+              transform: "translateY(-50%)", display: "flex", alignItems: "center", gap: 3,
+            }}
+          >
+            <span style={{ width: 4, height: 1, background: skin.border }} />
+            <span style={{ font: `500 9px ${font.mono}`, color: skin.fgMuted, fontVariantNumeric: "tabular-nums" }}>
+              {db > 0 ? `+${db}` : db}
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * A pan knob, dragged vertically. A knob is what a hand expects for pan, and
+ * unlike a slider it can't be mistaken for a second, tiny fader. The indicator
+ * points straight up at centre and swings ±135° to the extremes.
+ */
+function PanKnob({
+  value, onChange, onReset, skin, accent,
+}: {
+  value: number;
+  onChange: (v: number) => void;
+  onReset: () => void;
+  skin: Skin;
+  accent: string;
+}) {
+  const start = useRef<{ y: number; v: number } | null>(null);
+  const onDown = useCallback(
+    (e: React.PointerEvent) => {
+      e.preventDefault();
+      start.current = { y: e.clientY, v: value };
+      const move = (ev: PointerEvent) => {
+        if (!start.current) return;
+        // ~120px of travel spans the whole range; up is right, down is left.
+        const dv = (start.current.y - ev.clientY) / 120;
+        onChange(Math.max(-1, Math.min(1, start.current.v + dv)));
+      };
+      const up = () => {
+        start.current = null;
+        window.removeEventListener("pointermove", move);
+        window.removeEventListener("pointerup", up);
+      };
+      window.addEventListener("pointermove", move);
+      window.addEventListener("pointerup", up);
+    },
+    [value, onChange],
+  );
+  return (
+    <div
+      onPointerDown={onDown}
+      onDoubleClick={onReset}
+      title={`Pan ${panLabel(value)} — drag, double-click to centre`}
+      style={{ position: "relative", width: 28, height: 28, cursor: "ns-resize", touchAction: "none" }}
+    >
+      <div
+        style={{
+          position: "absolute", inset: 0, borderRadius: 999,
+          border: `1px solid ${skin.border}`,
+          backgroundImage: "linear-gradient(180deg, #30353b, #16191d)",
+          boxShadow: "0 1px 3px rgba(0,0,0,.5), inset 0 1px 0 rgba(255,255,255,.06)",
+        }}
+      />
+      <div
+        style={{
+          position: "absolute", left: "50%", top: "50%", width: 2, height: 11,
+          background: accent, borderRadius: 1,
+          transformOrigin: "bottom center",
+          transform: `translate(-50%, -100%) rotate(${value * 135}deg)`,
+        }}
+      />
+    </div>
+  );
 }
 
 /**
@@ -418,7 +544,7 @@ function MasterMeterVertical({ skin, level }: { skin: Skin; level: number }) {
     <span
       title="Master output"
       style={{
-        position: "absolute", right: 4, top: 4, bottom: 4, width: 6,
+        position: "relative", width: 8, height: FADER_H, flex: "0 0 auto",
         background: skin.slot, borderRadius: 999, overflow: "hidden",
       }}
     >
@@ -426,7 +552,7 @@ function MasterMeterVertical({ skin, level }: { skin: Skin; level: number }) {
         style={{
           position: "absolute", left: 0, right: 0, bottom: 0,
           height: `${filled * 100}%`,
-          background: hot ? "#C0453B" : "#3B9E5A",
+          background: hot ? control.arm : control.mute,
         }}
       />
     </span>
