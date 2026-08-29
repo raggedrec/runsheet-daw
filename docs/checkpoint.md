@@ -39,6 +39,13 @@ Written so the next session doesn't rediscover any of this. Read this before tou
     regions have no peaks and `lanesFromProject` skips them (the app then rebuilds from stems).
     Re-importing missing samples on reopen — matching saved region uuids back to Run Sheet files —
     is the next piece.
+  - **Bug found on first live run and fixed:** the reopen path froze the fresh fallback. It
+    started the reopened project's audio worklet, found no drawable lanes (samples not cached),
+    then fell through to a fresh `createSession` that started a SECOND worklet on the one shared
+    AudioContext — two engines, and `queryLoadingComplete()` never returned. Fix: the reopened
+    project no longer boots its worklet until the lanes check passes; on a miss it is
+    `terminate()`d (it never touched the audio graph) and the fresh path runs with one worklet.
+    This is trap #1 territory — one AudioContext, one worklet, always.
 - **Mixer meters.** `LiveStreamBroadcaster` (lib-fusion) is the SENDING side, in the worklet.
   Reading it needs a receiver plus the address that carries peak data. Not documented, not
   guessed at. Deliberately deferred.

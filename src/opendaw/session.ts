@@ -122,7 +122,7 @@ function buildProjectEnv(audioContext: AudioContext): {
  * source: it is only invoked from the worklet's `error` and `processorerror`
  * listeners — crash recovery, not a rebuild on record.
  */
-async function bringUp(project: Project): Promise<void> {
+export async function startSessionEngine(project: Project): Promise<void> {
   project.startAudioWorklet();
   // engine — the EngineFacade with play/stop/record — is only usable once the
   // worklet has reported ready.
@@ -133,23 +133,31 @@ export async function createSession(boot: BootResult): Promise<DawSession> {
   const { audioContext } = boot;
   const { env, sampleService } = buildProjectEnv(audioContext);
   const project = Project.new(env);
-  await bringUp(project);
+  await startSessionEngine(project);
   return { project, audioContext, sampleService };
 }
 
 /**
- * Reopens a saved session in place of a fresh one.
+ * Reopens a saved session's graph — WITHOUT starting its audio worklet.
  *
  * `loadAnyVersion` rather than `load`: it runs openDAW's version migrations, so
  * a session saved by an older SDK still opens rather than throwing on a format
  * bump. It is async for exactly that reason.
  *
+ * The worklet is deliberately NOT started here. The AudioContext is shared, and
+ * startAudioWorklet connects a node to its single destination; starting one for
+ * a reopened project that then turns out to be unusable (its samples were never
+ * imported in this browser, so there is nothing to draw or play) would leave a
+ * second engine running when the fresh path starts its own — two engines on one
+ * context, which deadlocks the loader. So the caller reads the graph first with
+ * `lanesFromProject`, and only if that yields lanes does it call
+ * `startSessionEngine`; otherwise it `terminate()`s this project, which never
+ * touched the audio graph, and falls back to a fresh load.
+ *
  * The buffer carries the whole box graph — faders, pans, effects, regions — but
  * NOT the audio. The engine finds audio through the sampleProvider, which reads
- * SampleStorage by uuid. On the browser that first imported the stems those
- * uuids are present, so a reopen plays. On a browser that has never seen the
- * song the store is empty and the regions will be silent until the stems are
- * re-imported — a gap the reload path does not yet close (see lanesFromProject).
+ * SampleStorage by uuid; those uuids only exist on a browser that imported the
+ * stems. Re-importing missing stems on reopen is the gap still to close.
  */
 export async function loadSessionProject(
   boot: BootResult,
@@ -158,6 +166,5 @@ export async function loadSessionProject(
   const { audioContext } = boot;
   const { env, sampleService } = buildProjectEnv(audioContext);
   const project = await Project.loadAnyVersion(env, buffer);
-  await bringUp(project);
   return { project, audioContext, sampleService };
 }

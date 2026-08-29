@@ -8,7 +8,12 @@
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { boot, startAudio, BootError, type BootResult } from "./opendawBoot";
-import { createSession, loadSessionProject, type DawSession } from "./opendaw/session";
+import {
+  createSession,
+  loadSessionProject,
+  startSessionEngine,
+  type DawSession,
+} from "./opendaw/session";
 import {
   loadSongIntoProject,
   lanesFromProject,
@@ -207,11 +212,19 @@ export default function DawApp() {
         const reopened = await loadSessionProject(bootResult, saved);
         const restored = lanesFromProject(reopened.project);
         if (restored.length > 0) {
+          // Commit to the reopened project: NOW start its worklet. Doing this
+          // before the lanes check is what deadlocked the fresh fallback — two
+          // engines on the one shared AudioContext.
+          await startSessionEngine(reopened.project);
           setSession(reopened);
           setLanes(restored);
           setStage({ name: "loaded" });
           return;
         }
+        // Nothing to draw (its samples aren't in this browser). Tear the graph
+        // down — no worklet was started, so this leaves the AudioContext clean
+        // for the fresh path below.
+        reopened.project.terminate();
       }
 
       const created = await createSession(bootResult);
