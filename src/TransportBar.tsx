@@ -216,41 +216,22 @@ export function TransportBar(p: TransportBarProps) {
         {p.saveState === "saving" ? "Saving…" : p.saveState === "saved" ? "Saved" : p.saveState === "failed" ? "Retry save" : "Save"}
       </button>
 
-      {/*
-        Horizontal zoom. Powers of two rather than a free slider: a timeline
-        that lands on 3.7x is a timeline you can't return to, and every step
-        here halves what's on screen.
-      */}
-      <label
-        style={{
-          display: "flex", alignItems: "center", gap: 6,
-          font: `600 ${size.xs}px ${font.body}`, letterSpacing: ".08em",
-          textTransform: "uppercase", color: skin.fgSubtle,
-        }}
-      >
-        Zoom
-        <input
-          type="range"
-          min={0} max={6} step={1}
-          value={Math.round(Math.log2(p.zoom))}
-          onChange={(e) => p.onZoom(2 ** Number(e.target.value))}
-          onDoubleClick={() => p.onZoom(1)}
-          title="Zoom — double-click to fit the song"
-          style={{ width: 70, accentColor: skin.fgMuted }}
-        />
-        <span style={{ font: `500 ${size.xs}px ${font.mono}`, width: 24, color: skin.fgMuted }}>
-          {p.zoom}×
-        </span>
-      </label>
-
-      <LookControls skin={skin} look={p.look} onLook={p.onLook} />
+      <LookControls skin={skin} look={p.look} onLook={p.onLook} zoom={p.zoom} onZoom={p.onZoom} />
 
       <style>{`@keyframes rec-blink { to { opacity: .25 } }`}</style>
     </div>
   );
 }
 
-function LookControls({ skin, look, onLook }: { skin: Skin; look: Look; onLook: (p: Partial<Look>) => void }) {
+function LookControls({
+  skin, look, onLook, zoom, onZoom,
+}: {
+  skin: Skin;
+  look: Look;
+  onLook: (p: Partial<Look>) => void;
+  zoom: number;
+  onZoom: (zoom: number) => void;
+}) {
   const chip = (active: boolean): React.CSSProperties => ({
     font: `500 ${size.xs}px ${font.body}`,
     letterSpacing: ".08em", textTransform: "uppercase",
@@ -281,6 +262,33 @@ function LookControls({ skin, look, onLook }: { skin: Skin; look: Look; onLook: 
           />
         ))}
       </div>
+
+      {/*
+        Zoom and Height sit together on the right — both shape the view rather
+        than the sound. Zoom is powers of two: a timeline that lands on 3.7x is
+        one you can't return to, and each step halves what's on screen.
+      */}
+      <label
+        style={{
+          display: "flex", alignItems: "center", gap: 6, marginLeft: space[2],
+          font: `600 ${size.xs}px ${font.body}`, letterSpacing: ".08em",
+          textTransform: "uppercase", color: skin.fgSubtle,
+        }}
+      >
+        Zoom
+        <input
+          type="range"
+          min={0} max={6} step={1}
+          value={Math.round(Math.log2(zoom))}
+          onChange={(e) => onZoom(2 ** Number(e.target.value))}
+          onDoubleClick={() => onZoom(1)}
+          title="Zoom — double-click to fit the song"
+          style={{ width: 70, accentColor: skin.fgMuted }}
+        />
+        <span style={{ font: `500 ${size.xs}px ${font.mono}`, width: 24, color: skin.fgMuted }}>
+          {zoom}×
+        </span>
+      </label>
 
       {/* Labelled, unlike the mystery slider this replaces. */}
       <label

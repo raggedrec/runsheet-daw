@@ -49,7 +49,10 @@ export function ChordsPanel({ skin, text }: ChordsPanelProps) {
         </h2>
       </header>
 
-      <div style={{ padding: space[3], overflow: "auto", minHeight: 0 }}>
+      {/* flex:1 + minHeight:0 makes THIS the scroll box. Without the flex it
+          sizes to its content and the whole page scrolls instead, dragging the
+          DAW around when you read down a long lyric. */}
+      <div style={{ flex: 1, minHeight: 0, padding: space[3], overflow: "auto", overscrollBehavior: "contain" }}>
         {has ? (
           <pre
             style={{

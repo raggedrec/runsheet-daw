@@ -26,7 +26,6 @@ import { StartScreen } from "./StartScreen";
 import { Mixer, audibility } from "./Mixer";
 import { TrackList } from "./TrackList";
 import { StatusBar } from "./StatusBar";
-import { EffectsRack } from "./EffectsRack";
 import { Browser } from "./Browser";
 import { ChordsPanel } from "./ChordsPanel";
 import { useConsoleLog } from "./useConsoleLog";
@@ -705,63 +704,6 @@ export default function DawApp() {
             </p>
           )}
 
-          {logs.length > 0 && (
-            <section
-              style={{
-                background: skin.surface,
-                border: `1px solid ${skin.border}`,
-                borderRadius: 6,
-                marginBottom: 16,
-                overflow: "hidden",
-              }}
-            >
-              <button
-                onClick={() => setShowLog((v) => !v)}
-                style={{
-                  width: "100%", textAlign: "left", cursor: "pointer",
-                  background: "transparent", border: "none", padding: "10px 16px",
-                  font: "600 11px ui-sans-serif, system-ui", letterSpacing: ".08em",
-                  textTransform: "uppercase", color: skin.fgSubtle,
-                }}
-              >
-                {showLog ? "▾" : "▸"} Engine log · {logs.length}
-                {logs.some((l) => l.level === "error" || l.level === "warn") && (
-                  <span style={{ color: "#C0453B" }}>
-                    {" "}· {logs.filter((l) => l.level === "error" || l.level === "warn").length} problem
-                    {logs.filter((l) => l.level === "error" || l.level === "warn").length === 1 ? "" : "s"}
-                  </span>
-                )}
-              </button>
-              {showLog && (
-                <div
-                  style={{
-                    maxHeight: 220, overflowY: "auto",
-                    borderTop: `1px solid ${skin.border}`,
-                    padding: "8px 16px 12px",
-                    font: "11px ui-monospace, SFMono-Regular, Menlo, monospace",
-                  }}
-                >
-                  {logs.map((line) => (
-                    <div
-                      key={line.id}
-                      style={{
-                        color:
-                          line.level === "error" || line.level === "warn"
-                            ? "#C0453B"
-                            : skin.fgMuted,
-                        padding: "2px 0",
-                        whiteSpace: "pre-wrap",
-                        wordBreak: "break-word",
-                      }}
-                    >
-                      {line.text}
-                    </div>
-                  ))}
-                </div>
-              )}
-            </section>
-          )}
-
           {/*
             Row: tracks + timeline take the space, the browser is a fixed
             column beside them. Fixed because a file list that grows and
@@ -847,33 +789,21 @@ export default function DawApp() {
             )}
           </div>
 
-          {/* Row: mixer takes the space, effects sits beside it at a fixed
-              width, as on a desk where the rack is at the end. */}
-          <div style={{ display: "flex", gap: 10, flex: "0 0 auto", minHeight: 0 }}>
-            <div style={{ flex: 1, minWidth: 0, overflow: "auto" }}>
-              <Mixer
-                project={session.project}
-                lanes={lanes}
-                skin={skin}
-                accent={accent.solid}
-                revision={mixRevision}
-                onChanged={bump}
-                inputDevices={devices}
-                deviceId={deviceId}
-                onChooseDevice={chooseDevice}
-              />
-            </div>
-            <div style={{ width: 250, flex: "0 0 auto", overflow: "auto" }}>
-              <EffectsRack
-                project={session.project}
-                unit={selected?.unit ?? null}
-                trackName={selected?.name ?? null}
-                skin={skin}
-                accent={accent.solid}
-                revision={mixRevision}
-                onChanged={bump}
-              />
-            </div>
+          {/* The mixer takes the whole row now. A track's effects live inside
+              it — click a track name to open its device panel (chain + params) —
+              so there's no separate rack column floating over the lyrics. */}
+          <div style={{ display: "flex", flex: "0 0 auto", minHeight: 0, overflow: "auto" }}>
+            <Mixer
+              project={session.project}
+              lanes={lanes}
+              skin={skin}
+              accent={accent.solid}
+              revision={mixRevision}
+              onChanged={bump}
+              inputDevices={devices}
+              deviceId={deviceId}
+              onChooseDevice={chooseDevice}
+            />
           </div>
 
           <StatusBar
@@ -882,6 +812,66 @@ export default function DawApp() {
             audioContext={session.audioContext}
             position={seconds}
           />
+
+          {/* The engine log lives at the very bottom now — it's a diagnostic you
+              open when something's wrong, not something that earns space up top.
+              Collapsed by default; the problem count still shows when collapsed. */}
+          {logs.length > 0 && (
+            <section
+              style={{
+                background: skin.surface,
+                border: `1px solid ${skin.border}`,
+                borderRadius: 6,
+                flex: "0 0 auto",
+                overflow: "hidden",
+              }}
+            >
+              <button
+                onClick={() => setShowLog((v) => !v)}
+                style={{
+                  width: "100%", textAlign: "left", cursor: "pointer",
+                  background: "transparent", border: "none", padding: "8px 16px",
+                  font: "600 11px ui-sans-serif, system-ui", letterSpacing: ".08em",
+                  textTransform: "uppercase", color: skin.fgSubtle,
+                }}
+              >
+                {showLog ? "▾" : "▸"} Engine log · {logs.length}
+                {logs.some((l) => l.level === "error" || l.level === "warn") && (
+                  <span style={{ color: "#C0453B" }}>
+                    {" "}· {logs.filter((l) => l.level === "error" || l.level === "warn").length} problem
+                    {logs.filter((l) => l.level === "error" || l.level === "warn").length === 1 ? "" : "s"}
+                  </span>
+                )}
+              </button>
+              {showLog && (
+                <div
+                  style={{
+                    maxHeight: 200, overflowY: "auto",
+                    borderTop: `1px solid ${skin.border}`,
+                    padding: "8px 16px 12px",
+                    font: "11px ui-monospace, SFMono-Regular, Menlo, monospace",
+                  }}
+                >
+                  {logs.map((line) => (
+                    <div
+                      key={line.id}
+                      style={{
+                        color:
+                          line.level === "error" || line.level === "warn"
+                            ? "#C0453B"
+                            : skin.fgMuted,
+                        padding: "2px 0",
+                        whiteSpace: "pre-wrap",
+                        wordBreak: "break-word",
+                      }}
+                    >
+                      {line.text}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </section>
+          )}
 
           {pending && (
             <Dialog

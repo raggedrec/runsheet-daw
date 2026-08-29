@@ -22,6 +22,7 @@ import type { InputDevice } from "./opendaw/recording";
 import { useInputMeter } from "./useInputMeter";
 import { font, laneColorFor, radius, size, space, type Skin } from "./theme";
 import { DeviceView } from "./DeviceView";
+import { EffectsRack } from "./EffectsRack";
 
 export interface MixerProps {
   project: Project;
@@ -116,15 +117,29 @@ export function Mixer({ project, lanes, skin, accent, revision, onChanged, input
 
       <div style={{ flex: 1, minWidth: 0, background: skin.surfaceSunken }}>
         {open ? (
-          <DeviceView
-            project={project}
-            devices={devices}
-            trackName={open.name}
-            skin={skin}
-            accent={accent}
-            revision={revision}
-            onChanged={onChanged}
-          />
+          /* One place for a track's devices: the chain (add/remove) on top, the
+             parameters below. This replaced a separate Effects panel that
+             floated over the lyrics — clicking a track name here is the way in. */
+          <div style={{ display: "flex", flexDirection: "column", gap: space[3], padding: space[3], overflow: "auto" }}>
+            <EffectsRack
+              project={project}
+              unit={open.unit}
+              trackName={open.name}
+              skin={skin}
+              accent={accent}
+              revision={revision}
+              onChanged={onChanged}
+            />
+            <DeviceView
+              project={project}
+              devices={devices}
+              trackName={open.name}
+              skin={skin}
+              accent={accent}
+              revision={revision}
+              onChanged={onChanged}
+            />
+          </div>
         ) : (
           /* Scrolls sideways rather than shrinking strips to unusable widths —
              a 30px fader is a decoration. */
