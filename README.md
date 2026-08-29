@@ -4,10 +4,11 @@ Recording and playback for [Run Sheet](https://raggedcompanyrecordings.com),
 built on the [openDAW SDK](https://opendaw.org).
 
 Separate from Run Sheet on purpose, for two reasons that happen to point the
-same way: openDAW is AGPL, so keeping it in its own app means only this app is
-publishable; and it needs `SharedArrayBuffer`, which needs cross-origin
-isolation, which would break every Supabase signed URL if applied to Run
-Sheet's origin.
+same way: this app is licensed AGPL (a deliberate choice — the openDAW SDK it
+builds on is LGPL, not AGPL), so keeping it in its own app confines that
+copyleft to this app rather than Run Sheet; and it needs `SharedArrayBuffer`,
+which needs cross-origin isolation, which would break every Supabase signed
+URL if applied to Run Sheet's origin.
 
 ## Running it
 

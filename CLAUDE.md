@@ -68,17 +68,23 @@ no control. `docs/checkpoint.md` has a "doesn't work" section; keep it honest.
 guess. The engine log panel exists because six fixes were shipped without
 reading openDAW's console output, all of them wrong.
 
-## Licensing — unresolved, and it matters
+## Licensing — resolved: this app is AGPL by choice
 
-Every `@opendaw/*` package on npm declares **LGPL-3.0-or-later**, not AGPL. The
-AGPL applies to the openDAW *studio app*, not the SDK. This repo was split out
-and published partly on the belief the SDK was AGPL. **Read the shipped LICENSE
-files in `node_modules/@opendaw/*` before acting on this** — if LGPL holds, the
-DAW could live inside Run Sheet privately.
+Confirmed from `node_modules/@opendaw/*/package.json`: every `@opendaw/*`
+package declares **LGPL-3.0-or-later** (nam-wasm is MIT). The AGPL applies to
+the openDAW *studio app*, not the SDK. The LGPL did **not** force AGPL on this
+app — keeping it private inside Run Sheet was legally open — but Ragged Company
+Recordings has **chosen to license this app AGPL-3.0-or-later** and stay there.
+
+Because it's AGPL, **§13 is only discharged by a running source link.** The
+footer in `src/DawApp.tsx` links to the public repo at
+`github.com/raggedrec/runsheet-daw` (verified public). If that repo goes
+private or moves, update the footer link or the app is out of compliance the
+moment it is network-reachable — a Vercel preview counts.
 
 - `lucide-react` (ISC) and `fontaudio` (MIT) — safe, no constraints.
 - GridSound, Ardour (GPLv2), Tracktion (GPLv3) — reference only. Copying any of
-  it permanently forecloses the option above.
+  it forecloses ever taking this app closed-source again.
 
 ## Related
 

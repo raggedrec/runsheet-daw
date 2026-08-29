@@ -17,18 +17,19 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 ---
 
 Built on the openDAW SDK (https://opendaw.org), Copyright (C) 2025
-André Michelle. openDAW is dual-licensed; this application is
-distributed under the AGPL option.
+André Michelle. Every @opendaw/* package this app depends on is published
+under LGPL-3.0-or-later (nam-wasm is MIT); the AGPL applies to the openDAW
+studio app, not the SDK. The LGPL permits this application to be
+distributed under the AGPL, which is the licence Ragged Company Recordings
+has chosen for it.
 
 The full licence text is in LICENSE at the repository root: the canonical
 AGPL-3.0, 661 lines, verified to contain section 13 (Remote Network
 Interaction).
 
-STILL OUTSTANDING before this app is reachable over a network — including
-a Vercel preview URL, which counts:
-
-  The source link in the footer of src/App.tsx points at
-  github.com/raggedrec/runsheet-daw, which does not exist yet. Section 13
-  is discharged by the running application offering its source, not by
-  this file or by LICENSE. A link that 404s claims a compliance it isn't
-  delivering, which is worse than no link at all.
+Section 13 compliance: the running application offers its source through a
+link in its footer (src/DawApp.tsx) to the public repository at
+https://github.com/raggedrec/runsheet-daw. Section 13 is discharged by
+that running link, not by this file or by LICENSE — if the repository ever
+goes private or moves, the footer link must be updated to match, or the
+app is out of compliance the moment it is reachable over a network.
