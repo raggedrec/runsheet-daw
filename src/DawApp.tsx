@@ -30,7 +30,7 @@ import { Browser } from "./Browser";
 import { ChordsPanel } from "./ChordsPanel";
 import { MarkerStrip } from "./MarkerStrip";
 import {
-  listMarkers, subscribeMarkers, addMarker, moveMarker, renameMarker, deleteMarker,
+  listMarkers, subscribeMarkers, addMarker, moveMarker, renameMarker, deleteMarker, hueFor,
   type MarkerInfo,
 } from "./opendaw/markers";
 import { useConsoleLog } from "./useConsoleLog";
@@ -557,6 +557,7 @@ export default function DawApp() {
    *
    *   space      play / stop (stops a take too)
    *   R          record (again to stop)
+   *   M          drop a marker at the playhead (unsnapped)
    *   [ ]        zoom out / in
    *   ; '        shorter / taller lanes
    *   1–9        select that track
@@ -586,6 +587,12 @@ export default function DawApp() {
           if (transport.isRecording || transport.isCountingIn || isRecording) void stopRecord();
           else void record();
           return;
+        case "m": case "M":
+          // Drop a marker at the live playhead, unsnapped — catch the moment as
+          // it plays, tidy it to a bar by dragging later.
+          e.preventDefault();
+          onAddMarker(transport.position, "Section", hueFor("Section"));
+          return;
         case "]":
           e.preventDefault();
           setZoom((z) => Math.min(64, z * 2));
@@ -613,7 +620,7 @@ export default function DawApp() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [stage.name, transport, isRecording, record, stopRecord, stopAll, lanes, look, setLook]);
+  }, [stage.name, transport, isRecording, record, stopRecord, stopAll, onAddMarker, lanes, look, setLook]);
 
   /*
    * Track and file management: remove a lane, download a take, delete a file.
