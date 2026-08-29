@@ -11,7 +11,7 @@
  * pixel per row are visibly wrong by the fourth track.
  */
 import { useState } from "react";
-import { X } from "lucide-react";
+import { Plus, X } from "lucide-react";
 import { font, laneColorFor, radius, size, type Skin } from "./theme";
 import type { LoadedLane } from "./opendaw/loadSong";
 
@@ -34,11 +34,14 @@ export interface TrackListProps {
   onSelect: (lane: LoadedLane) => void;
   onRename: (lane: LoadedLane, name: string) => void;
   onRemove: (lane: LoadedLane) => void;
+  onAddTrack: () => void;
+  /** Disables Add while a track is being created or a take is running. */
+  addBusy: boolean;
   selected: string | null;
 }
 
 export function TrackList({
-  lanes, skin, accent, laneHeight, muted, soloed, armed, onMute, onSolo, onArm, onSelect, onRename, onRemove, selected,
+  lanes, skin, accent, laneHeight, muted, soloed, armed, onMute, onSolo, onArm, onSelect, onRename, onRemove, onAddTrack, addBusy, selected,
 }: TrackListProps) {
   return (
     <div
@@ -148,6 +151,27 @@ export function TrackList({
           </div>
         );
       })}
+
+      {/* Add a track where the tracks are, not in a form across the page. It
+          drops an empty armed lane straight in (see DawApp.addTrack), so the
+          thing you're about to record onto appears the moment you ask for it. */}
+      <button
+        onClick={onAddTrack}
+        disabled={addBusy}
+        title="Add a track to record onto"
+        style={{
+          display: "flex", alignItems: "center", gap: 6,
+          width: "100%", margin: "8px 0 0", padding: "8px 10px",
+          background: "transparent", color: skin.fgMuted,
+          border: `1px dashed ${skin.border}`, borderRadius: radius.sm,
+          font: `600 ${size.sm}px ${font.body}`,
+          cursor: addBusy ? "default" : "pointer",
+          opacity: addBusy ? 0.5 : 1,
+        }}
+      >
+        <Plus size={14} />
+        Add track
+      </button>
     </div>
   );
 }

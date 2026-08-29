@@ -18,6 +18,8 @@ import type { Project } from "@opendaw/studio-core";
 import { AudioUnitBoxAdapter } from "@opendaw/studio-adapters";
 import type { AudioUnitBox } from "@opendaw/studio-boxes";
 import type { LoadedLane } from "./opendaw/loadSong";
+import type { InputDevice } from "./opendaw/recording";
+import { useInputMeter } from "./useInputMeter";
 import { font, laneColorFor, radius, size, space, type Skin } from "./theme";
 import { DeviceView } from "./DeviceView";
 
@@ -28,9 +30,13 @@ export interface MixerProps {
   accent: string;
   revision: number;
   onChanged: () => void;
+  /** Recording input — chosen here now that the old form is gone. */
+  inputDevices: InputDevice[];
+  deviceId: string | null;
+  onChooseDevice: (deviceId: string) => void;
 }
 
-export function Mixer({ project, lanes, skin, accent, revision, onChanged }: MixerProps) {
+export function Mixer({ project, lanes, skin, accent, revision, onChanged, inputDevices, deviceId, onChooseDevice }: MixerProps) {
   /*
    * One panel, two views. Clicking a track name in the list swaps the strips
    * for that track's devices; clicking it again goes back. The mixer and the
@@ -104,6 +110,8 @@ export function Mixer({ project, lanes, skin, accent, revision, onChanged }: Mix
             </button>
           );
         })}
+
+        <InputPicker skin={skin} devices={inputDevices} deviceId={deviceId} onChoose={onChooseDevice} />
       </div>
 
       <div style={{ flex: 1, minWidth: 0, background: skin.surfaceSunken }}>
@@ -319,6 +327,103 @@ function panLabel(pan: number): string {
   const amount = Math.round(Math.abs(pan) * 100);
   if (amount < 2) return "C";
   return `${pan < 0 ? "L" : "R"}${amount}`;
+}
+
+/**
+ * The recording input, now that the standalone form is gone.
+ *
+ * It lives in the mixer because choosing what you record from is a mixing
+ * question, and the level meter belongs next to the faders it will sit among.
+ * The device list is empty until a track has been added (adding one asks the
+ * browser for the microphone); before that the picker says so rather than
+ * offering nothing.
+ */
+function InputPicker({
+  skin, devices, deviceId, onChoose,
+}: {
+  skin: Skin;
+  devices: InputDevice[];
+  deviceId: string | null;
+  onChoose: (id: string) => void;
+}) {
+  const meter = useInputMeter(deviceId, devices.length > 0);
+  return (
+    <div style={{ marginTop: 12, paddingTop: 10, borderTop: `1px solid ${skin.border}` }}>
+      <label
+        style={{
+          font: `600 ${size.xs}px ${font.body}`,
+          letterSpacing: ".08em", textTransform: "uppercase",
+          color: skin.fgSubtle, display: "block", marginBottom: 5,
+        }}
+      >
+        Input
+      </label>
+      <select
+        value={deviceId ?? ""}
+        onChange={(e) => onChoose(e.target.value)}
+        disabled={devices.length === 0}
+        style={{
+          width: "100%", boxSizing: "border-box",
+          font: `${size.sm}px ${font.body}`, color: skin.fg,
+          background: skin.surface, border: `1px solid ${skin.border}`,
+          borderRadius: radius.sm, padding: "5px 6px",
+        }}
+      >
+        {devices.length === 0 && <option value="">Add a track first…</option>}
+        {devices.map((d) => (
+          <option key={d.deviceId} value={d.deviceId}>
+            {d.label}
+          </option>
+        ))}
+      </select>
+      <div style={{ marginTop: 6 }}>
+        <InputMeterBar skin={skin} level={meter.level} sawSignal={meter.sawSignal} error={meter.error} />
+      </div>
+    </div>
+  );
+}
+
+/** A slim peak bar for the chosen input — dB mapped, red near clipping. */
+function InputMeterBar({
+  skin, level, sawSignal, error,
+}: {
+  skin: Skin;
+  level: number;
+  sawSignal: boolean;
+  error: string | null;
+}) {
+  if (error) {
+    return <span style={{ font: `500 ${size.xs}px ${font.body}`, color: "#C0453B" }}>{error}</span>;
+  }
+  const db = level > 0 ? 20 * Math.log10(level) : -Infinity;
+  const filled = Number.isFinite(db) ? Math.max(0, Math.min(1, (db + 60) / 60)) : 0;
+  const hot = db > -3;
+  return (
+    <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
+      <span
+        style={{
+          position: "relative", height: 6, flex: 1,
+          background: skin.slot, borderRadius: 999, overflow: "hidden",
+        }}
+      >
+        <span
+          style={{
+            position: "absolute", inset: 0,
+            transformOrigin: "left center", transform: `scaleX(${filled})`,
+            background: hot ? "#C0453B" : "#3B9E5A",
+          }}
+        />
+      </span>
+      <span
+        style={{
+          font: `500 ${size.xs}px ${font.mono}`, color: skin.fgSubtle,
+          width: 26, textAlign: "right", fontVariantNumeric: "tabular-nums",
+        }}
+      >
+        {Number.isFinite(db) && sawSignal ? Math.round(db) : "--"}
+      </span>
+    </span>
+  );
 }
 
 /**

@@ -21,8 +21,7 @@ import { S } from "./styles";
 import { Timeline } from "./Timeline";
 import { TransportBar } from "./TransportBar";
 import { useLook } from "./useLook";
-import { accents, skins } from "./theme";
-import { RecordPanel } from "./RecordPanel";
+import { accents, skins, font, size, space } from "./theme";
 import { StartScreen } from "./StartScreen";
 import { Mixer, audibility } from "./Mixer";
 import { TrackList } from "./TrackList";
@@ -690,18 +689,21 @@ export default function DawApp() {
             onSave={() => void save()}
           />
 
-          <RecordPanel
-            skin={skin}
-            accent={accent.solid}
-            accentFg={accent.fg}
-            devices={devices}
-            deviceId={deviceId}
-            isRecording={isRecording}
-            busy={busy}
-            error={recError}
-            onAddTrack={(name) => void addTrack(name)}
-            onChooseDevice={chooseDevice}
-          />
+          {/* The add-track form used to live here as a wide dead-space panel.
+              Adding a track now happens in the track list (+ Add track) and the
+              input is chosen in the mixer, so all that's left to surface here is
+              a recording error when one happens. */}
+          {recError && (
+            <p
+              style={{
+                font: `${size.sm}px ${font.body}`,
+                color: "#C0453B",
+                margin: `0 0 ${space[4]}px`,
+              }}
+            >
+              <strong>{recError.message}</strong> {recError.remedy}
+            </p>
+          )}
 
           {logs.length > 0 && (
             <section
@@ -797,6 +799,8 @@ export default function DawApp() {
                     file: song?.files.find((f) => f.id === lane.fileId) ?? null,
                   })
                 }
+                onAddTrack={() => void addTrack("Take")}
+                addBusy={busy || isRecording}
                 selected={selected?.fileId ?? null}
               />
               <div style={{ flex: 1, minWidth: 0 }}>
@@ -854,6 +858,9 @@ export default function DawApp() {
                 accent={accent.solid}
                 revision={mixRevision}
                 onChanged={bump}
+                inputDevices={devices}
+                deviceId={deviceId}
+                onChooseDevice={chooseDevice}
               />
             </div>
             <div style={{ width: 250, flex: "0 0 auto", overflow: "auto" }}>
