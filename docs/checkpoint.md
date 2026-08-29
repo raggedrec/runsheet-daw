@@ -95,14 +95,32 @@ Do not debug this without reading it.
 4. Mixer meters (see above).
 5. Mix and stem bounce to Idea Drop.
 
+## THE transport bug, finally understood
+
+For most of this project the transport looked dead: `engine.play()` seemed to produce silence,
+`engine.position` never advanced, `isRecording` never flipped, and six record fixes failed. All
+of it was one missing call. The engine runs in the audio worklet and publishes its state
+(isPlaying, isRecording, isCountingIn, position, bpm, cpuLoad) into a SharedArrayBuffer. The main
+thread only sees those updates when it READS that buffer, and the SDK does that read from a
+recurring callback registered with `AnimationFrame.add` (see EngineWorklet). Those callbacks fire
+only while openDAW's `AnimationFrame` scheduler has a driver — and nothing sets one until you call
+`AnimationFrame.start(window)`. The app never did.
+
+Fix: `opendawBoot.bootOnce` now calls `AnimationFrame.start(window)` (import from
+`@opendaw/lib-dom`, added as a direct dep). With the pump running, play/record state and position
+update for real. Traps 2 and 3 below were symptoms of this, not separate quirks; `useTransport`'s
+interpolation is now smoothing over real engine reports rather than masking their absence.
+**RUNTIME-UNVERIFIED as of writing — test playback and a take, then delete this caveat.**
+
 ## Traps — every one of these cost hours
 
 1. **`startAudioWorklet()` connects the worklet itself.** Do not connect it again; that sums the
    engine with itself, +6 dB.
 2. **`engine.play()` alone produces silence.** Set a position first, even the current one.
-3. **`engine.position` does not advance** in this build. `useTransport` anchors on what the
-   engine reports and interpolates with the AudioContext clock between reports. Interpolation
-   only runs while the engine says something is moving — never invent motion.
+   (Was also masked by the missing `AnimationFrame` pump — see above. Keep the setPosition anyway;
+   it matches `useTransport.play`.)
+3. **`engine.position` did not advance** — because the state pump was never started (see above),
+   not a build quirk. `useTransport` anchors on the engine's reports and interpolates between them.
 4. **Transaction boundaries cut both ways.** Box *writes* must be inside `editing.modify()`.
    `CaptureDevices` lookups must be *outside* it — its box-graph subscribers haven't run yet.
 5. **`editing.modify()` is synchronous.** Async work happens before it, in a prepare pass.

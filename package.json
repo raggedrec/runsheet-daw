@@ -18,6 +18,7 @@
     "test": "npx --yes esbuild scripts/unit/entry.ts --bundle --format=esm --platform=node --outfile=scripts/unit/bundle.mjs --log-level=error && node scripts/unit/tests.mjs"
   },
   "dependencies": {
+    "@opendaw/lib-dom": "^0.0.89",
     "@opendaw/studio-core": "^0.2.4",
     "@opendaw/studio-core-wasm": "^0.0.15",
     "@supabase/supabase-js": "^2.112.4",

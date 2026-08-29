@@ -21,6 +21,7 @@
  */
 import { Workers, AudioWorklets, EngineFacade } from "@opendaw/studio-core";
 import { WasmEngine } from "@opendaw/studio-core-wasm";
+import { AnimationFrame } from "@opendaw/lib-dom";
 
 import workersMainUrl from "@opendaw/studio-core/workers-main.js?url";
 import processorsUrl from "@opendaw/studio-core/processors.js?url";
@@ -92,6 +93,25 @@ export function boot(): Promise<BootResult> {
 
 async function bootOnce(): Promise<BootResult> {
   checkIsolation();
+
+  /*
+   * Start openDAW's global animation-frame pump. THIS IS NOT OPTIONAL.
+   *
+   * The engine runs in the audio worklet and publishes its state — isPlaying,
+   * isRecording, isCountingIn, position, bpm, cpuLoad — into a SharedArrayBuffer.
+   * The main thread only sees those updates when it reads that buffer, and the
+   * SDK does that read from a recurring callback registered with
+   * `AnimationFrame.add` (see EngineWorklet). Those callbacks fire only while
+   * `AnimationFrame` has a driver, which nothing sets until this call.
+   *
+   * Without it the buffer is written by the worklet and never read: play() rolls
+   * the transport for real, but isPlaying never flips, position never advances,
+   * and record's readiness checks wait forever on observables that can't change.
+   * That single missing call is what made the transport look dead and defeated
+   * every earlier record fix — they polled state that was never being pumped.
+   * `start` is idempotent (same owner is a no-op), so booting once is enough.
+   */
+  AnimationFrame.start(window);
 
   await Workers.install(workersMainUrl);
   AudioWorklets.install(processorsUrl);
