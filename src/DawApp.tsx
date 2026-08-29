@@ -24,10 +24,15 @@ import { useLook } from "./useLook";
 import { accents, skins, font, size, space } from "./theme";
 import { StartScreen } from "./StartScreen";
 import { Mixer, audibility } from "./Mixer";
-import { TrackList } from "./TrackList";
+import { TrackList, TRACK_COLUMN } from "./TrackList";
 import { StatusBar } from "./StatusBar";
 import { Browser } from "./Browser";
 import { ChordsPanel } from "./ChordsPanel";
+import { MarkerStrip } from "./MarkerStrip";
+import {
+  listMarkers, subscribeMarkers, addMarker, moveMarker, renameMarker, deleteMarker,
+  type MarkerInfo,
+} from "./opendaw/markers";
 import { useConsoleLog } from "./useConsoleLog";
 import { collectTakes } from "./opendaw/take";
 import { saveSession } from "./session";
@@ -85,6 +90,8 @@ export default function DawApp() {
   const [showLog, setShowLog] = useState(false);
   /** The track whose effects chain is on screen. */
   const [selected, setSelected] = useState<LoadedLane | null>(null);
+  /** Section markers (Verse, Chorus…), read from the project's marker track. */
+  const [markers, setMarkers] = useState<MarkerInfo[]>([]);
   /** Horizontal zoom: 1 = whole song across the width. */
   const [zoom, setZoom] = useState(1);
   const [scroll, setScroll] = useState(0);
@@ -497,6 +504,55 @@ export default function DawApp() {
   }, [isRecording, transport, stopRecord]);
 
   /*
+   * Markers. The project's marker track is the source of truth; this mirrors it
+   * into state and re-reads whenever it changes (including undo). Each handler
+   * writes through the opendaw layer, then the subscription pulls the new list.
+   */
+  const refreshMarkers = useCallback(() => {
+    if (session) setMarkers(listMarkers(session.project));
+  }, [session]);
+
+  useEffect(() => {
+    if (!session) return;
+    refreshMarkers();
+    const sub = subscribeMarkers(session.project, refreshMarkers);
+    return () => sub.terminate();
+  }, [session, refreshMarkers]);
+
+  const onAddMarker = useCallback(
+    (seconds: number, label: string, hue: number) => {
+      if (!session) return;
+      addMarker(session.project, seconds, label, hue);
+      refreshMarkers();
+    },
+    [session, refreshMarkers],
+  );
+  const onMoveMarker = useCallback(
+    (box: Parameters<typeof moveMarker>[1], seconds: number) => {
+      if (!session) return;
+      moveMarker(session.project, box, seconds);
+      refreshMarkers();
+    },
+    [session, refreshMarkers],
+  );
+  const onRenameMarker = useCallback(
+    (box: Parameters<typeof renameMarker>[1], label: string) => {
+      if (!session) return;
+      renameMarker(session.project, box, label);
+      refreshMarkers();
+    },
+    [session, refreshMarkers],
+  );
+  const onDeleteMarker = useCallback(
+    (box: Parameters<typeof deleteMarker>[1]) => {
+      if (!session) return;
+      deleteMarker(session.project, box);
+      refreshMarkers();
+    },
+    [session, refreshMarkers],
+  );
+
+  /*
    * Track and file management: remove a lane, download a take, delete a file.
    *
    * The two that lose something — removing a lane, deleting a file — go through
@@ -713,15 +769,39 @@ export default function DawApp() {
             <div
               style={{
                 display: "flex",
+                flexDirection: "column",
                 flex: 1,
                 minWidth: 0,
                 background: skin.surface,
                 border: `1px solid ${skin.border}`,
                 borderRadius: 6,
-                overflow: "auto",
+                overflow: "hidden",
               }}
             >
-              <TrackList
+              {/* Marker lane, fixed above the scroll. The left spacer is the
+                  width of the track column, so the strip aligns over the timeline
+                  (gutter 0) rather than the track controls. */}
+              <div style={{ display: "flex", flex: "0 0 auto" }}>
+                <div style={{ width: TRACK_COLUMN, flex: "0 0 auto" }} />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <MarkerStrip
+                    markers={markers}
+                    duration={duration}
+                    zoom={zoom}
+                    scroll={scroll}
+                    playheadSeconds={seconds}
+                    skin={skin}
+                    onAdd={onAddMarker}
+                    onMove={onMoveMarker}
+                    onRename={onRenameMarker}
+                    onDelete={onDeleteMarker}
+                  />
+                </div>
+              </div>
+
+              {/* Tracks and timeline scroll together — one set of rows. */}
+              <div style={{ display: "flex", flex: 1, minHeight: 0, overflow: "auto" }}>
+                <TrackList
                 lanes={lanes}
                 skin={skin}
                 accent={accent.solid}
@@ -745,23 +825,24 @@ export default function DawApp() {
                 addBusy={busy || isRecording}
                 selected={selected?.fileId ?? null}
               />
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <Timeline
-                  lanes={lanes}
-                  skin={skin}
-                  accent={accent.solid}
-                  laneHeight={look.laneHeight}
-                  position={seconds}
-                  duration={duration}
-                  bpm={song?.bpm ? tempoOf(song.bpm) : null}
-                  muted={audible.muted}
-                  soloed={audible.soloed}
-                  onScrub={transport.seek}
-                  gutter={0}
-                  zoom={zoom}
-                  scroll={scroll}
-                  onScroll={setScroll}
-                />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <Timeline
+                    lanes={lanes}
+                    skin={skin}
+                    accent={accent.solid}
+                    laneHeight={look.laneHeight}
+                    position={seconds}
+                    duration={duration}
+                    bpm={song?.bpm ? tempoOf(song.bpm) : null}
+                    muted={audible.muted}
+                    soloed={audible.soloed}
+                    onScrub={transport.seek}
+                    gutter={0}
+                    zoom={zoom}
+                    scroll={scroll}
+                    onScroll={setScroll}
+                  />
+                </div>
               </div>
             </div>
 
