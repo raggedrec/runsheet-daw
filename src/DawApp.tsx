@@ -790,6 +790,7 @@ export default function DawApp() {
                     zoom={zoom}
                     scroll={scroll}
                     playheadSeconds={seconds}
+                    bpm={song?.bpm ? tempoOf(song.bpm) : null}
                     skin={skin}
                     onAdd={onAddMarker}
                     onMove={onMoveMarker}

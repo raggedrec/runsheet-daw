@@ -23,6 +23,8 @@ export interface MarkerStripProps {
   zoom: number;
   scroll: number;
   playheadSeconds: number;
+  /** Song tempo, for snapping markers to bar lines. Null = no snap. */
+  bpm: number | null;
   skin: Skin;
   onAdd: (seconds: number, label: string, hue: number) => void;
   onMove: (box: MarkerBox, seconds: number) => void;
@@ -31,7 +33,7 @@ export interface MarkerStripProps {
 }
 
 export function MarkerStrip({
-  markers, duration, zoom, scroll, playheadSeconds, skin, onAdd, onMove, onRename, onDelete,
+  markers, duration, zoom, scroll, playheadSeconds, bpm, skin, onAdd, onMove, onRename, onDelete,
 }: MarkerStripProps) {
   const ref = useRef<HTMLDivElement | null>(null);
   const [width, setWidth] = useState(0);
@@ -54,6 +56,13 @@ export function MarkerStrip({
   const secondsToX = (s: number) => (visible > 0 ? ((s - from) / visible) * width : 0);
   const xToSeconds = (x: number) => from + (width > 0 ? (x / width) * visible : 0);
 
+  // Snap to the nearest bar. Sections start on bars, so a marker that lands a
+  // few pixels off looks like a mistake; snapping makes placement effortless.
+  // 4/4 is assumed, as everywhere else in this app (Run Sheet has no time sig).
+  const secondsPerBar = bpm ? (60 / bpm) * 4 : 0;
+  const snap = (seconds: number) =>
+    secondsPerBar > 0 ? Math.max(0, Math.round(seconds / secondsPerBar) * secondsPerBar) : Math.max(0, seconds);
+
   const startDrag = useCallback(
     (uuid: string, box: MarkerBox) => (e: React.PointerEvent) => {
       e.preventDefault();
@@ -61,14 +70,16 @@ export function MarkerStrip({
       const rect = ref.current?.getBoundingClientRect();
       const move = (ev: PointerEvent) => {
         const x = Math.max(0, Math.min(width, ev.clientX - (rect?.left ?? 0)));
-        setDragging({ uuid, x });
+        // Preview snapped to the bar it will land on, so the flag jumps between
+        // bars as you drag rather than sliding to a spot it won't keep.
+        setDragging({ uuid, x: secondsToX(snap(xToSeconds(x))) });
       };
       const up = (ev: PointerEvent) => {
         window.removeEventListener("pointermove", move);
         window.removeEventListener("pointerup", up);
         const x = Math.max(0, Math.min(width, ev.clientX - (rect?.left ?? 0)));
         setDragging(null);
-        onMove(box, xToSeconds(x));
+        onMove(box, snap(xToSeconds(x)));
       };
       window.addEventListener("pointermove", move);
       window.addEventListener("pointerup", up);
@@ -114,7 +125,7 @@ export function MarkerStrip({
           {SECTIONS.map((s) => (
             <button
               key={s.label}
-              onClick={() => { onAdd(playheadSeconds, s.label, s.hue); setPicking(false); }}
+              onClick={() => { onAdd(snap(playheadSeconds), s.label, s.hue); setPicking(false); }}
               style={{
                 display: "flex", alignItems: "center", gap: 5,
                 padding: "4px 8px", cursor: "pointer",
@@ -127,7 +138,7 @@ export function MarkerStrip({
             </button>
           ))}
           <button
-            onClick={() => { onAdd(playheadSeconds, "Section", hueFor("Section")); setPicking(false); }}
+            onClick={() => { onAdd(snap(playheadSeconds), "Section", hueFor("Section")); setPicking(false); }}
             style={{
               padding: "4px 8px", cursor: "pointer", background: "transparent",
               border: `1px dashed ${skin.border}`, borderRadius: radius.sm,

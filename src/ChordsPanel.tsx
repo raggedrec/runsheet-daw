@@ -27,6 +27,10 @@ export function ChordsPanel({ skin, text }: ChordsPanelProps) {
         overflow: "hidden",
         display: "flex",
         flexDirection: "column",
+        // Fill the bounded wrapper exactly. Without an explicit height the
+        // section sizes to its content and spills past its flex box — down over
+        // the engine log, and dragging the page instead of scrolling in place.
+        height: "100%",
         minHeight: 0,
       }}
     >
