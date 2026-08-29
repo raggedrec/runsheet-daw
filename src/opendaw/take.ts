@@ -23,6 +23,7 @@ import { SampleStorage } from "@opendaw/studio-core";
 import type { AudioData } from "@opendaw/lib-dsp";
 import type { Peaks } from "@opendaw/lib-fusion";
 import type { Capture } from "@opendaw/studio-core";
+import type { UUID } from "@opendaw/lib-std";
 import { encodeWav } from "../wav";
 
 export interface Take {
@@ -42,6 +43,30 @@ export interface Take {
  * several passes — punching in twice gives two takes, and silently keeping
  * only the last would throw away a performance.
  */
+/**
+ * Loads a sample once it has actually been written, not the instant it exists.
+ *
+ * openDAW finalises a take in two steps we can see in the engine log:
+ * `importSample` then `save sample`. The save writes the audio to storage
+ * asynchronously, and the region that points at it appears before that write
+ * finishes. Reading right then loses the race — the store throws "a requested
+ * file or directory could not be found", and a good take is reported as failed.
+ * So poll: retry the load until it succeeds or a generous deadline passes. On a
+ * genuinely absent sample this still gives up, but only after the save has had
+ * every reasonable chance to land.
+ */
+async function loadWhenReady(uuid: UUID.Bytes) {
+  const deadline = Date.now() + 8000;
+  for (;;) {
+    try {
+      return await SampleStorage.get().load(uuid);
+    } catch (err) {
+      if (Date.now() >= deadline) throw err;
+      await new Promise((resolve) => setTimeout(resolve, 120));
+    }
+  }
+}
+
 export async function collectTakes(capture: Capture, baseName: string): Promise<Take[]> {
   const regions = capture.recordedRegions();
   const takes: Take[] = [];
@@ -54,7 +79,7 @@ export async function collectTakes(capture: Capture, baseName: string): Promise<
     const uuid = fileBox?.address?.uuid;
     if (uuid === undefined) continue;
 
-    const [audio, peaks] = await SampleStorage.get().load(uuid as never);
+    const [audio, peaks] = await loadWhenReady(uuid as never);
     const seconds = audio.numberOfFrames / audio.sampleRate;
     takes.push({
       // Numbered only when there is more than one, so the common case reads
