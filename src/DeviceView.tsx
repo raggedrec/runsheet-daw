@@ -26,6 +26,15 @@ interface Param {
   setValue: (v: never) => void;
   setUnitValue: (v: number) => void;
   valueMapping: { x: (v: never) => number };
+  /**
+   * openDAW's own formatting of the current value.
+   *
+   * This is what makes tempo sync legible. A synced delay time is a musical
+   * division, and its raw number is meaningless — printed, it reads "1/8" or
+   * "1/4." like it should. Same mechanism gives "250 ms", "-12 dB", "45 %"
+   * everywhere else, so the panel stops showing bare floats.
+   */
+  getPrintValue?: () => unknown;
 }
 
 interface DeviceAdapterish {
@@ -33,6 +42,32 @@ interface DeviceAdapterish {
   box: unknown;
   enabledField?: { getValue: () => boolean; setValue: (v: boolean) => void };
 }
+
+/**
+ * Plainer names for parameters whose internal ones are opaque.
+ *
+ * openDAW's Delay carries both a musical time and a free one — `delay` is
+ * synced to the tempo, `millisTime` is not — and as raw keys neither says so.
+ * The engine already does tempo sync; this is what makes it visible.
+ */
+const PARAM_LABELS: Record<string, string> = {
+  delay: "Time (synced)",
+  millisTime: "Time (ms)",
+  preSyncTimeLeft: "Pre-delay L (synced)",
+  preSyncTimeRight: "Pre-delay R (synced)",
+  preMillisTimeLeft: "Pre-delay L (ms)",
+  preMillisTimeRight: "Pre-delay R (ms)",
+  lfoSpeed: "LFO rate",
+  lfoDepth: "LFO depth",
+  cross: "Ping-pong",
+  automakeup: "Auto makeup",
+  autoattack: "Auto attack",
+  autorelease: "Auto release",
+  inputgain: "Input gain",
+};
+
+/** Parameters that follow the project tempo, flagged so it's obvious which. */
+const SYNCED = /sync|^delay$/i;
 
 export interface DeviceViewProps {
   project: Project;
@@ -124,6 +159,7 @@ export function DeviceView({ project, devices, trackName, skin, accent, revision
               {params.map(([key, param]) => (
                 <ParamRow
                   key={key}
+                  keyName={key}
                   param={param}
                   skin={skin}
                   accent={accent}
@@ -139,9 +175,10 @@ export function DeviceView({ project, devices, trackName, skin, accent, revision
 }
 
 function ParamRow({
-  param, skin, accent, onWrite,
+  param, keyName, skin, accent, onWrite,
 }: {
   param: Param;
+  keyName: string;
   skin: Skin;
   accent: string;
   onWrite: (fn: () => void) => void;
@@ -162,11 +199,13 @@ function ParamRow({
           checked={value}
           onChange={(e) => onWrite(() => param.setValue(e.target.checked as never))}
         />
-        {param.name}
+        {PARAM_LABELS[keyName] ?? param.name}
       </label>
     );
   }
 
+  const label = PARAM_LABELS[keyName] ?? param.name;
+  const synced = SYNCED.test(keyName);
   const numeric = typeof value === "number" ? value : 0;
   let unit = 0;
   try {
@@ -179,14 +218,36 @@ function ParamRow({
   return (
     <div style={{ padding: "3px 0" }}>
       <div style={{ display: "flex", justifyContent: "space-between", gap: 6 }}>
-        <span style={{ font: `${size.xs}px ${font.body}`, color: skin.fgSubtle }}>{param.name}</span>
+        <span
+          style={{
+            font: `${size.xs}px ${font.body}`, color: skin.fgSubtle,
+            display: "flex", alignItems: "center", gap: 4,
+          }}
+        >
+          {label}
+          {/* A tempo-synced parameter moves when the song's BPM does. Worth
+              saying, because "0.25" and "1/4" are the same number until the
+              tempo changes and only one of them follows. */}
+          {synced && (
+            <span
+              title="Follows the project tempo"
+              style={{
+                font: `700 9px ${font.body}`, letterSpacing: ".06em",
+                color: accent, border: `1px solid ${accent}`,
+                borderRadius: 2, padding: "0 3px",
+              }}
+            >
+              SYNC
+            </span>
+          )}
+        </span>
         <span
           style={{
             font: `500 ${size.xs}px ${font.mono}`, color: skin.fgMuted,
             fontVariantNumeric: "tabular-nums",
           }}
         >
-          {format(numeric)}
+          {printed(param, numeric)}
         </span>
       </div>
       <input
@@ -217,6 +278,29 @@ function boxClassName(box: unknown): string {
 /** Compressor rather than CompressorDeviceBox. */
 function deviceName(device: DeviceAdapterish): string {
   return boxClassName(device.box);
+}
+
+/**
+ * openDAW's own printed value where it has one, a plain number otherwise.
+ *
+ * Its formatting knows what each parameter IS — a musical division prints as
+ * "1/8", a time as "250 ms", a gain as "-12 dB". Guessing at that from the
+ * raw float would be inventing units.
+ */
+function printed(param: Param, fallback: number): string {
+  try {
+    const result = param.getPrintValue?.();
+    if (typeof result === "string" && result.length > 0) return result;
+    if (result && typeof result === "object") {
+      const r = result as { value?: unknown; unit?: unknown };
+      const value = typeof r.value === "string" ? r.value : String(r.value ?? "");
+      const unit = typeof r.unit === "string" ? r.unit : "";
+      if (value.length > 0) return unit ? `${value} ${unit}` : value;
+    }
+  } catch {
+    // A parameter that can't print itself still has a number worth showing.
+  }
+  return format(fallback);
 }
 
 /** Enough precision to be useful, not so much that it jitters. */
