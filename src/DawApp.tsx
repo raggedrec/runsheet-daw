@@ -500,18 +500,13 @@ export default function DawApp() {
             skin={skin}
             accent={accent.solid}
             accentFg={accent.fg}
-            armedTrackName={recordTrack?.name ?? null}
             devices={devices}
             deviceId={deviceId}
             isRecording={isRecording}
-            countIn={countIn}
             busy={busy}
             error={recError}
             onAddTrack={(name) => void addTrack(name)}
             onChooseDevice={chooseDevice}
-            onCountIn={setCountIn}
-            onRecord={() => void record()}
-            onStop={() => void stopRecord()}
           />
 
           {logs.length > 0 && (
