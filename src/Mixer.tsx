@@ -280,9 +280,6 @@ function Strip({
             style={{ width: "100%", height: 3, margin: 0, accentColor: skin.fgMuted }}
           />
         )}
-        {/* Master's pan row has nothing to pan, so its output meter lives here —
-            keeping the fader aligned while giving the level somewhere to sit. */}
-        {isMaster && meterLevel !== undefined && <MasterMeterBar skin={skin} level={meterLevel} />}
       </div>
 
       {/*
@@ -319,6 +316,11 @@ function Strip({
             accentColor: isMaster ? skin.fgMuted : accent,
           }}
         />
+        {/* Master output meter, vertical, beside the fader — fills from the
+            bottom like a real desk's meter. */}
+        {isMaster && meterLevel !== undefined && (
+          <MasterMeterVertical skin={skin} level={meterLevel} />
+        )}
       </div>
 
       <span
@@ -406,8 +408,8 @@ function InputPicker({
   );
 }
 
-/** The master output peak, same dB mapping as the input bar. */
-function MasterMeterBar({ skin, level }: { skin: Skin; level: number }) {
+/** The master output peak, vertical, beside the fader — fills from the bottom. */
+function MasterMeterVertical({ skin, level }: { skin: Skin; level: number }) {
   const db = level > 0 ? 20 * Math.log10(level) : -Infinity;
   const filled = Number.isFinite(db) ? Math.max(0, Math.min(1, (db + 60) / 60)) : 0;
   const hot = db > -3;
@@ -415,14 +417,14 @@ function MasterMeterBar({ skin, level }: { skin: Skin; level: number }) {
     <span
       title="Master output"
       style={{
-        position: "relative", height: 6, width: "100%",
+        position: "absolute", right: 4, top: 4, bottom: 4, width: 6,
         background: skin.slot, borderRadius: 999, overflow: "hidden",
       }}
     >
       <span
         style={{
-          position: "absolute", inset: 0,
-          transformOrigin: "left center", transform: `scaleX(${filled})`,
+          position: "absolute", left: 0, right: 0, bottom: 0,
+          height: `${filled * 100}%`,
           background: hot ? "#C0453B" : "#3B9E5A",
         }}
       />

@@ -180,10 +180,11 @@ export function Timeline({
             ctx.lineTo(x1, mid + 0.5);
             ctx.stroke();
 
-            // The peak envelope, filled with a vertical "spine" gradient —
-            // brightest along the centre line, softer toward the peaks. It gives
-            // the waveform depth without a second colour or the accent (which the
-            // skin deliberately keeps off the waveform).
+            // The full peak envelope, solid. A gradient that faded the peaks
+            // looked like a glow on the bright white default but made the darker
+            // track colours vanish at their extremes — the waveform collapsed to
+            // its centre and looked half-drawn. Solid shows both sides and the
+            // real peaks, which is what a DAW is for.
             ctx.beginPath();
             PeaksPainter.renderPixelStrips(ctx, peaks, ch, {
               u0: visStart * framesPerSecond,
@@ -196,15 +197,7 @@ export function Timeline({
               y0,
               y1,
             });
-            if (on) {
-              const g = ctx.createLinearGradient(0, y0, 0, y1);
-              g.addColorStop(0, withAlpha(waveColour, 0.55));
-              g.addColorStop(0.5, waveColour);
-              g.addColorStop(1, withAlpha(waveColour, 0.55));
-              ctx.fillStyle = g;
-            } else {
-              ctx.fillStyle = skin.waveMuted;
-            }
+            ctx.fillStyle = on ? waveColour : skin.waveMuted;
             ctx.fill();
           }
         }
