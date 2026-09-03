@@ -1106,6 +1106,8 @@ export default function DawApp() {
                 deviceId={deviceId}
                 onChooseDevice={chooseDevice}
                 colorFor={colorFor}
+                armedCapture={recordTrack?.capture ?? null}
+                armedName={recordTrack?.name ?? null}
               />
             </div>
             </div>

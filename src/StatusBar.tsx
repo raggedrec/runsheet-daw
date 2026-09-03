@@ -25,8 +25,21 @@ export interface StatusBarProps {
 export function StatusBar({ skin, project, audioContext, position }: StatusBarProps) {
   const cpu = useCpuLoad(project);
 
+  /*
+   * Round-trip latency the browser reports, in ms. baseLatency is the
+   * processing buffer; outputLatency adds the hardware path (0 or absent in some
+   * browsers). This is as close to "what am I hearing, how late" as the web
+   * platform gives — the buffer SIZE itself isn't ours to set (that lives in the
+   * interface's driver), but the latency it produces is at least worth showing.
+   */
+  const latencyMs =
+    audioContext
+      ? Math.round((audioContext.baseLatency + (audioContext.outputLatency || 0)) * 1000)
+      : null;
+
   const items: Array<[string, string]> = [
     ["Rate", audioContext ? `${(audioContext.sampleRate / 1000).toFixed(1)} kHz` : "—"],
+    ["Latency", latencyMs === null ? "—" : `${latencyMs} ms`],
     // What takes are saved as, not what the engine computes in.
     ["Takes", "16-bit WAV"],
     ["Position", formatLong(position)],

@@ -14,12 +14,12 @@
  * writes outside a transaction.
  */
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { Project } from "@opendaw/studio-core";
-import { EffectFactories } from "@opendaw/studio-core";
+import type { Project, Capture } from "@opendaw/studio-core";
+import { EffectFactories, CaptureAudio } from "@opendaw/studio-core";
 import { AudioUnitBoxAdapter } from "@opendaw/studio-adapters";
 import type { AudioUnitBox } from "@opendaw/studio-boxes";
 import type { LoadedLane } from "./opendaw/loadSong";
-import type { InputDevice } from "./opendaw/recording";
+import { probeChannelCount, type InputDevice } from "./opendaw/recording";
 import { useInputMeter } from "./useInputMeter";
 import { useMasterMeter } from "./useEngineMeter";
 import { control, font, radius, readableOn, size, space, type Skin } from "./theme";
@@ -40,6 +40,9 @@ export interface MixerProps {
   onChooseDevice: (deviceId: string) => void;
   /** A lane's colour — the chosen one, or the role default. */
   colorFor: (lane: LoadedLane) => string;
+  /** The armed track's capture, for input gain and monitoring. Null when none. */
+  armedCapture: Capture | null;
+  armedName: string | null;
 }
 
 /** Sentinel for "the master's device chain is open", since master isn't a lane. */
@@ -57,7 +60,7 @@ function isMaximizer(effect: unknown): boolean {
   return (ctor?.ClassName ?? "").startsWith("Maximizer");
 }
 
-export function Mixer({ project, lanes, skin, accent, revision, onChanged, inputDevices, deviceId, onChooseDevice, colorFor }: MixerProps) {
+export function Mixer({ project, lanes, skin, accent, revision, onChanged, inputDevices, deviceId, onChooseDevice, colorFor, armedCapture, armedName }: MixerProps) {
   /*
    * One panel, two views. Clicking a track name in the list swaps the strips
    * for that track's devices; clicking it again goes back. The mixer and the
@@ -198,7 +201,15 @@ export function Mixer({ project, lanes, skin, accent, revision, onChanged, input
           </button>
         )}
 
-        <InputPicker skin={skin} devices={inputDevices} deviceId={deviceId} onChoose={onChooseDevice} />
+        <RecordingInput
+          skin={skin}
+          accent={accent}
+          devices={inputDevices}
+          deviceId={deviceId}
+          onChoose={onChooseDevice}
+          armedCapture={armedCapture}
+          armedName={armedName}
+        />
       </div>
 
       <div style={{ flex: 1, minWidth: 0, background: skin.surfaceSunken }}>
@@ -590,26 +601,53 @@ function PanKnob({
  * browser for the microphone); before that the picker says so rather than
  * offering nothing.
  */
-function InputPicker({
-  skin, devices, deviceId, onChoose,
+function RecordingInput({
+  skin, accent, devices, deviceId, onChoose, armedCapture, armedName,
 }: {
   skin: Skin;
+  accent: string;
   devices: InputDevice[];
   deviceId: string | null;
   onChoose: (id: string) => void;
+  armedCapture: Capture | null;
+  armedName: string | null;
 }) {
   const meter = useInputMeter(deviceId, devices.length > 0);
+
+  // How many channels this device actually gives the browser — probed on the
+  // real stream, because the web platform won't tell us any other way.
+  const [channels, setChannels] = useState<number | null>(null);
+  useEffect(() => {
+    if (!deviceId || devices.length === 0) {
+      setChannels(null);
+      return;
+    }
+    let live = true;
+    setChannels(null);
+    probeChannelCount(deviceId).then(
+      (n) => { if (live) setChannels(n); },
+      () => { if (live) setChannels(null); },
+    );
+    return () => { live = false; };
+  }, [deviceId, devices.length]);
+
+  const audioCapture = armedCapture instanceof CaptureAudio ? armedCapture : null;
+
+  const label = (text: string) => (
+    <label
+      style={{
+        font: `600 ${size.xs}px ${font.body}`,
+        letterSpacing: ".08em", textTransform: "uppercase",
+        color: skin.fgSubtle, display: "block", marginBottom: 5,
+      }}
+    >
+      {text}
+    </label>
+  );
+
   return (
     <div style={{ marginTop: 12, paddingTop: 10, borderTop: `1px solid ${skin.border}` }}>
-      <label
-        style={{
-          font: `600 ${size.xs}px ${font.body}`,
-          letterSpacing: ".08em", textTransform: "uppercase",
-          color: skin.fgSubtle, display: "block", marginBottom: 5,
-        }}
-      >
-        Input
-      </label>
+      {label("Input")}
       <select
         value={deviceId ?? ""}
         onChange={(e) => onChoose(e.target.value)}
@@ -628,10 +666,135 @@ function InputPicker({
           </option>
         ))}
       </select>
+
+      {/* What the browser exposes for this interface — the honest count, since a
+          multi-channel desk may still only hand the browser a stereo pair. */}
+      {deviceId && (
+        <p style={{ font: `${size.xs}px ${font.body}`, color: skin.fgSubtle, margin: "5px 0 0" }}>
+          {channels === null
+            ? "…"
+            : channels <= 2
+              ? `${channels} channel${channels === 1 ? "" : "s"} to the browser`
+              : `${channels} inputs available`}
+        </p>
+      )}
+
       <div style={{ marginTop: 6 }}>
         <InputMeterBar skin={skin} level={meter.level} sawSignal={meter.sawSignal} error={meter.error} />
       </div>
+
+      {/* Per-track input controls, on the armed capture. Monitoring "through the
+          amp" routes the live input through the track's effect chain, so a DI
+          guitar is heard through the NAM device while it records. */}
+      {audioCapture ? (
+        <CaptureControls capture={audioCapture} name={armedName} skin={skin} accent={accent} />
+      ) : (
+        <p style={{ font: `${size.xs}px ${font.body}`, color: skin.fgSubtle, margin: "10px 0 0" }}>
+          Arm a track (R) to set its input monitoring.
+        </p>
+      )}
     </div>
+  );
+}
+
+/**
+ * Input gain and monitoring for the armed track's capture.
+ *
+ * These are runtime properties of openDAW's CaptureAudio (not box-graph state),
+ * so they're read from and written to the instance directly; local state only
+ * mirrors them so the controls render. Re-read whenever the armed capture
+ * changes, because a different track brings a different capture.
+ */
+function CaptureControls({
+  capture, name, skin, accent,
+}: {
+  capture: CaptureAudio;
+  name: string | null;
+  skin: Skin;
+  accent: string;
+}) {
+  const [mode, setMode] = useState<"off" | "direct" | "effects">("off");
+  const [monDb, setMonDb] = useState(0);
+
+  // Mirror the capture's current values when the armed track changes. Input gain
+  // is deliberately absent: CaptureAudio.gainDb is read-only, and the browser
+  // has no hardware-gain control anyway — that lives on the interface.
+  useEffect(() => {
+    setMode(capture.monitoringMode);
+    setMonDb(capture.monitorVolumeDb);
+  }, [capture]);
+
+  const setMonitoring = (m: "off" | "direct" | "effects") => {
+    capture.monitoringMode = m;
+    setMode(m);
+  };
+  const setMonitorVol = (db: number) => {
+    capture.monitorVolumeDb = db;
+    setMonDb(db);
+  };
+
+  const modeBtn = (m: "off" | "direct" | "effects"): React.CSSProperties => ({
+    flex: 1, height: 22, padding: 0,
+    font: `600 ${size.xs}px ${font.body}`,
+    color: mode === m ? "#fff" : skin.fgSubtle,
+    background: mode === m ? accent : "transparent",
+    border: `1px solid ${mode === m ? accent : skin.border}`,
+    borderRadius: radius.sm, cursor: "pointer",
+  });
+
+  return (
+    <div style={{ marginTop: 12, paddingTop: 10, borderTop: `1px solid ${skin.border}` }}>
+      <label
+        style={{
+          font: `600 ${size.xs}px ${font.body}`, letterSpacing: ".08em",
+          textTransform: "uppercase", color: skin.fgSubtle, display: "block", marginBottom: 5,
+        }}
+      >
+        Monitor {name ? `· ${name}` : ""}
+      </label>
+      <div style={{ display: "flex", gap: 3 }}>
+        <button style={modeBtn("off")} onClick={() => setMonitoring("off")} title="No monitoring">Off</button>
+        <button style={modeBtn("direct")} onClick={() => setMonitoring("direct")} title="Hear the raw input">Dir</button>
+        <button style={modeBtn("effects")} onClick={() => setMonitoring("effects")} title="Hear the input through this track's effects">Amp</button>
+      </div>
+
+      {mode !== "off" && (
+        <div style={{ marginTop: 8 }}>
+          <DbControl label="Monitor level" value={monDb} min={-40} max={6} onChange={setMonitorVol} skin={skin} accent={accent} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** A labelled dB slider, its value shown to the right. */
+function DbControl({
+  label, value, min, max, onChange, skin, accent,
+}: {
+  label: string;
+  value: number;
+  min: number;
+  max: number;
+  onChange: (db: number) => void;
+  skin: Skin;
+  accent: string;
+}) {
+  return (
+    <label style={{ display: "block" }}>
+      <span style={{ display: "flex", justifyContent: "space-between", font: `${size.xs}px ${font.body}`, color: skin.fgSubtle }}>
+        {label}
+        <span style={{ font: `500 ${size.xs}px ${font.mono}`, color: skin.fgMuted, fontVariantNumeric: "tabular-nums" }}>
+          {value > 0 ? "+" : ""}{value.toFixed(1)}
+        </span>
+      </span>
+      <input
+        type="range"
+        min={min} max={max} step={0.5}
+        value={Math.min(max, Math.max(min, value))}
+        onChange={(e) => onChange(Number(e.target.value))}
+        style={{ width: "100%", height: 3, accentColor: accent, marginTop: 2 }}
+      />
+    </label>
   );
 }
 

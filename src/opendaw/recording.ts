@@ -77,6 +77,36 @@ export interface RecordTrack {
 }
 
 /**
+ * How many input channels the browser actually exposes for a device.
+ *
+ * A multi-channel interface (a StudioLive, say) is a single `audioinput` to the
+ * web platform — there are no per-channel entries and no channel names, only a
+ * count, and even that depends on the browser and OS handing back more than a
+ * stereo pair. This asks for as many as it can and reports what it got, which is
+ * the honest ceiling: if it says 2, the interface only offered the browser two,
+ * and no UI can conjure the other fourteen.
+ */
+export async function probeChannelCount(deviceId: string): Promise<number> {
+  const stream = await navigator.mediaDevices.getUserMedia({
+    audio: {
+      deviceId: { exact: deviceId },
+      channelCount: { ideal: 32 },
+      echoCancellation: false,
+      noiseSuppression: false,
+      autoGainControl: false,
+    },
+  });
+  try {
+    const track = stream.getAudioTracks()[0];
+    const count = track?.getSettings().channelCount;
+    const max = track?.getCapabilities?.().channelCount?.max;
+    return Math.max(1, count ?? max ?? 1);
+  } finally {
+    stream.getTracks().forEach((t) => t.stop());
+  }
+}
+
+/**
  * Adds an empty track to record onto.
  *
  * Tape is openDAW's audio device — the one that plays and records regions
