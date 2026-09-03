@@ -28,6 +28,7 @@ const OFFERED: ReadonlyArray<{ key: string; label: string; factory: unknown; not
   { key: "Gate", label: "Gate", factory: EffectFactories.Gate, note: "Cuts what's below the threshold" },
   { key: "Compressor", label: "Compressor", factory: EffectFactories.Compressor, note: "Evens out the loud and quiet" },
   { key: "Revamp", label: "EQ", factory: EffectFactories.Revamp, note: "Shapes the tone" },
+  { key: "NeuralAmp", label: "Amp (NAM)", factory: EffectFactories.NeuralAmp, note: "A neural amp/pedal capture — load a .nam" },
   { key: "Tidal", label: "Saturator", factory: EffectFactories.Tidal, note: "Warmth and grit" },
   { key: "Delay", label: "Delay", factory: EffectFactories.Delay, note: "Echoes in time" },
   { key: "DattorroReverb", label: "Reverb", factory: EffectFactories.DattorroReverb, note: "Puts it in a room" },

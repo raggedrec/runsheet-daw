@@ -14,8 +14,10 @@
  * always 0..1 and each parameter's own curve does the work. A linear slider
  * over a decibel range spends most of its travel somewhere useless.
  */
-import { useCallback, useRef } from "react";
+import { useCallback, useRef, useState } from "react";
 import type { Project } from "@opendaw/studio-core";
+import { UUID } from "@opendaw/lib-std";
+import { NeuralAmpModelBox, type NeuralAmpDeviceBox } from "@opendaw/studio-boxes";
 import { font, radius, size, space, type Skin } from "./theme";
 
 /** The shape we rely on, kept narrow so a change in openDAW fails loudly. */
@@ -210,7 +212,19 @@ export function DeviceView({ project, devices, trackName, skin, accent, revision
             </header>
 
             <div style={{ padding: space[3] }}>
-              {rows.length === 0 && (
+              {/* The amp modeler needs a model before its knobs mean anything —
+                  load a .nam capture here; the gain/mix knobs follow below. */}
+              {isNeuralAmp(device) && (
+                <NamModelLoader
+                  project={project}
+                  box={device.box as NeuralAmpDeviceBox}
+                  skin={skin}
+                  accent={accent}
+                  onWrite={write}
+                />
+              )}
+
+              {rows.length === 0 && !isNeuralAmp(device) && (
                 <p style={{ font: `${size.sm}px ${font.body}`, color: skin.fgSubtle, margin: 0 }}>
                   This device exposes no parameters.
                 </p>
@@ -276,6 +290,135 @@ function groupRows(rows: ParamRowSpec[]): Array<{ name: string; rows: ParamRowSp
     byName.get(row.group)!.push(row);
   }
   return order.map((name) => ({ name, rows: byName.get(name)! }));
+}
+
+/** Whether a device is the Neural Amp, by openDAW's static ClassName. */
+function isNeuralAmp(device: DeviceAdapterish): boolean {
+  const ctor = (device.box as { constructor?: { ClassName?: string } })?.constructor;
+  return ctor?.ClassName === "NeuralAmpDeviceBox";
+}
+
+/**
+ * Loads a .nam model into a Neural Amp device.
+ *
+ * A .nam file is JSON — the format sdatkinson/neural-amp-modeler trains — and
+ * openDAW runs it in the worklet through its bundled nam-wasm. The model lives
+ * in its own box (a NeuralAmpModelBox) that the device points at, exactly as
+ * openDAW's own import does: hash the JSON for a stable id, reuse a model box
+ * already loaded from the same capture, else make one, then point the device at
+ * it. Stored in the graph, so the amp comes back when the session reopens.
+ *
+ * The read-and-hash is async, so it happens BEFORE the transaction; only the box
+ * writes go inside editing.modify() (via onWrite).
+ */
+function NamModelLoader({
+  project, box, skin, accent, onWrite,
+}: {
+  project: Project;
+  box: NeuralAmpDeviceBox;
+  skin: Skin;
+  accent: string;
+  onWrite: (fn: () => void) => void;
+}) {
+  const fileRef = useRef<HTMLInputElement | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const current = box.model.targetVertex.unwrapOrNull() as NeuralAmpModelBox | null;
+  const modelName = current ? current.label.getValue() : null;
+
+  const load = useCallback(
+    async (file: File) => {
+      setError(null);
+      setBusy(true);
+      try {
+        const text = await file.text();
+        let looksLikeNam = false;
+        try {
+          const parsed = JSON.parse(text) as Record<string, unknown>;
+          looksLikeNam =
+            typeof parsed === "object" && parsed !== null &&
+            ("architecture" in parsed || "config" in parsed || "weights" in parsed);
+        } catch {
+          // Not JSON at all — handled by the throw below.
+        }
+        if (!looksLikeNam) {
+          throw new Error("That doesn't look like a .nam model (expected NAM JSON).");
+        }
+
+        // Stable id from the content: the same capture loaded twice shares one
+        // model box rather than duplicating a few megabytes of weights.
+        const uuid = await UUID.sha256(new TextEncoder().encode(text).buffer);
+        let modelBox: NeuralAmpModelBox | null = null;
+        for (const existing of project.boxGraph.boxes()) {
+          if (existing instanceof NeuralAmpModelBox && UUID.equals(existing.address.uuid, uuid)) {
+            modelBox = existing;
+            break;
+          }
+        }
+
+        onWrite(() => {
+          if (modelBox === null) {
+            modelBox = NeuralAmpModelBox.create(project.boxGraph, uuid);
+            modelBox.label.setValue(file.name.replace(/\.nam$/i, ""));
+            modelBox.model.setValue(text);
+          }
+          box.model.refer(modelBox);
+        });
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Couldn't load that model.");
+      } finally {
+        setBusy(false);
+      }
+    },
+    [project, box, onWrite],
+  );
+
+  return (
+    <div style={{ marginBottom: space[3] }}>
+      <input
+        ref={fileRef}
+        type="file"
+        accept=".nam,application/json"
+        hidden
+        onChange={(e) => {
+          const file = e.target.files?.[0];
+          if (file) void load(file);
+          e.target.value = ""; // let the same file be picked again after an error
+        }}
+      />
+      <div style={{ display: "flex", alignItems: "center", gap: space[2] }}>
+        <button
+          onClick={() => fileRef.current?.click()}
+          disabled={busy}
+          style={{
+            flex: "0 0 auto", height: 28, paddingInline: 12,
+            font: `600 ${size.xs}px ${font.body}`, letterSpacing: ".04em",
+            color: accent, background: "transparent",
+            border: `1px dashed ${accent}`, borderRadius: radius.sm,
+            cursor: busy ? "default" : "pointer",
+          }}
+        >
+          {busy ? "Loading…" : modelName ? "Change .nam" : "Load .nam"}
+        </button>
+        <span
+          title={modelName ?? undefined}
+          style={{
+            font: `${size.sm}px ${font.body}`,
+            color: modelName ? skin.fg : skin.fgSubtle,
+            overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+          }}
+        >
+          {modelName ?? "No model loaded"}
+        </span>
+      </div>
+      {error && (
+        <p style={{ font: `${size.xs}px ${font.body}`, color: "#C0453B", margin: `${space[2]}px 0 0` }}>
+          {error}
+        </p>
+      )}
+    </div>
+  );
 }
 
 /** One parameter: a checkbox for a boolean, a knob for a number. */
