@@ -715,6 +715,7 @@ function CaptureControls({
 }) {
   const [mode, setMode] = useState<"off" | "direct" | "effects">("off");
   const [monDb, setMonDb] = useState(0);
+  const [chans, setChans] = useState<1 | 2>(2);
 
   // Mirror the capture's current values when the armed track changes. Input gain
   // is deliberately absent: CaptureAudio.gainDb is read-only, and the browser
@@ -722,6 +723,7 @@ function CaptureControls({
   useEffect(() => {
     setMode(capture.monitoringMode);
     setMonDb(capture.monitorVolumeDb);
+    setChans(capture.requestChannels.unwrapOrNull() ?? 2);
   }, [capture]);
 
   const setMonitoring = (m: "off" | "direct" | "effects") => {
@@ -732,6 +734,19 @@ function CaptureControls({
     capture.monitorVolumeDb = db;
     setMonDb(db);
   };
+  const setChannels = (n: 1 | 2) => {
+    capture.requestChannels = n;
+    setChans(n);
+  };
+
+  const chanBtn = (n: 1 | 2): React.CSSProperties => ({
+    flex: 1, height: 22, padding: 0,
+    font: `600 ${size.xs}px ${font.body}`,
+    color: chans === n ? "#fff" : skin.fgSubtle,
+    background: chans === n ? accent : "transparent",
+    border: `1px solid ${chans === n ? accent : skin.border}`,
+    borderRadius: radius.sm, cursor: "pointer",
+  });
 
   const modeBtn = (m: "off" | "direct" | "effects"): React.CSSProperties => ({
     flex: 1, height: 22, padding: 0,
@@ -744,6 +759,23 @@ function CaptureControls({
 
   return (
     <div style={{ marginTop: 12, paddingTop: 10, borderTop: `1px solid ${skin.border}` }}>
+      {/* Mono or stereo. Mono is a downmix of the pair, not one isolated input —
+          the web platform gives no channel-index selection — so for single-input
+          tracking put your source on one input, pick Mono, and the silent input
+          contributes nothing. */}
+      <label
+        style={{
+          font: `600 ${size.xs}px ${font.body}`, letterSpacing: ".08em",
+          textTransform: "uppercase", color: skin.fgSubtle, display: "block", marginBottom: 5,
+        }}
+      >
+        Channels
+      </label>
+      <div style={{ display: "flex", gap: 3, marginBottom: 10 }}>
+        <button style={chanBtn(1)} onClick={() => setChannels(1)} title="Record one channel (a mono downmix of the input pair)">Mono</button>
+        <button style={chanBtn(2)} onClick={() => setChannels(2)} title="Record the stereo pair">Stereo</button>
+      </div>
+
       <label
         style={{
           font: `600 ${size.xs}px ${font.body}`, letterSpacing: ".08em",
