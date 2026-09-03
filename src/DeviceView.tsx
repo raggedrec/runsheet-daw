@@ -38,9 +38,67 @@ interface Param {
 }
 
 interface DeviceAdapterish {
-  namedParameter?: Record<string, Param>;
+  /**
+   * Flat for most devices, nested for some. See `collectParams` — the EQ's is
+   * a record of BANDS, each holding its own parameters, so this can't be typed
+   * as a flat record without lying about it.
+   */
+  namedParameter?: Record<string, unknown>;
   box: unknown;
   enabledField?: { getValue: () => boolean; setValue: (v: boolean) => void };
+}
+
+/** One control to draw, and the band it belongs to when it belongs to one. */
+interface ParamRowSpec {
+  id: string;
+  group: string | null;
+  keyName: string;
+  param: Param;
+}
+
+/** Whether a value is a parameter, rather than a group of them. */
+function isParam(value: unknown): value is Param {
+  const p = value as Param | undefined;
+  return (
+    typeof p === "object" && p !== null &&
+    typeof p.getValue === "function" &&
+    typeof p.setUnitValue === "function"
+  );
+}
+
+/**
+ * The parameters of a device, flattened one level.
+ *
+ * Most devices expose `namedParameter` as a flat record of parameters. The EQ
+ * (Revamp) does not: its record holds seven BANDS — highPass, lowShelf, lowBell,
+ * midBell, highBell, highShelf, lowPass — and each band holds the parameters.
+ *
+ * Assuming flat is what blanked the whole app: the panel called `getValue()` on
+ * a band, `getValue` was undefined, and the throw during render unmounted every
+ * component in the tree. So this asks each entry what it is rather than assuming,
+ * and anything that is neither a parameter nor a group of them is skipped rather
+ * than rendered into a crash.
+ */
+function collectParams(named: Record<string, unknown> | undefined): ParamRowSpec[] {
+  const rows: ParamRowSpec[] = [];
+  for (const [key, value] of Object.entries(named ?? {})) {
+    if (isParam(value)) {
+      rows.push({ id: key, group: null, keyName: key, param: value });
+    } else if (typeof value === "object" && value !== null) {
+      for (const [subKey, sub] of Object.entries(value as Record<string, unknown>)) {
+        if (isParam(sub)) {
+          rows.push({ id: `${key}.${subKey}`, group: humanize(key), keyName: subKey, param: sub });
+        }
+      }
+    }
+  }
+  return rows;
+}
+
+/** "highPass" → "High pass", for band names openDAW only spells in camelCase. */
+function humanize(key: string): string {
+  const spaced = key.replace(/([a-z0-9])([A-Z])/g, "$1 $2").toLowerCase();
+  return spaced.charAt(0).toUpperCase() + spaced.slice(1);
 }
 
 /**
@@ -103,7 +161,7 @@ export function DeviceView({ project, devices, trackName, skin, accent, revision
     <div style={{ display: "flex", gap: space[3], padding: space[3], overflowX: "auto" }}>
       {devices.map((d, i) => {
         const device = d as DeviceAdapterish;
-        const params = Object.entries(device.namedParameter ?? {});
+        const rows = collectParams(device.namedParameter);
         const enabled = device.enabledField?.getValue() ?? true;
 
         return (
@@ -150,21 +208,36 @@ export function DeviceView({ project, devices, trackName, skin, accent, revision
             </header>
 
             <div style={{ padding: space[3] }}>
-              {params.length === 0 && (
+              {rows.length === 0 && (
                 <p style={{ font: `${size.sm}px ${font.body}`, color: skin.fgSubtle, margin: 0 }}>
                   This device exposes no parameters.
                 </p>
               )}
 
-              {params.map(([key, param]) => (
-                <ParamRow
-                  key={key}
-                  keyName={key}
-                  param={param}
-                  skin={skin}
-                  accent={accent}
-                  onWrite={write}
-                />
+              {rows.map((row, r) => (
+                <div key={row.id}>
+                  {/* Band heading, printed once when the band changes — so the EQ
+                      reads as seven labelled bands rather than a flat wall of
+                      "frequency / gain / q" repeated seven times. */}
+                  {row.group && row.group !== rows[r - 1]?.group && (
+                    <p
+                      style={{
+                        font: `700 ${size.xs}px ${font.body}`,
+                        letterSpacing: ".06em", textTransform: "uppercase",
+                        color: skin.fgMuted, margin: `${r === 0 ? 0 : space[3]}px 0 2px`,
+                      }}
+                    >
+                      {row.group}
+                    </p>
+                  )}
+                  <ParamRow
+                    keyName={row.keyName}
+                    param={row.param}
+                    skin={skin}
+                    accent={accent}
+                    onWrite={write}
+                  />
+                </div>
               ))}
             </div>
           </div>

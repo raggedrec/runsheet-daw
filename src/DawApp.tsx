@@ -23,6 +23,7 @@ import { TransportBar } from "./TransportBar";
 import { useLook } from "./useLook";
 import { accents, skins, font, size, space } from "./theme";
 import { StartScreen } from "./StartScreen";
+import { LoadingPanel } from "./LoadingPanel";
 import { Mixer, audibility } from "./Mixer";
 import { TrackList, TRACK_COLUMN } from "./TrackList";
 import { StatusBar } from "./StatusBar";
@@ -109,27 +110,30 @@ export default function DawApp() {
   /** Horizontal zoom: 1 = whole song across the width. */
   const [zoom, setZoom] = useState(1);
   const [scroll, setScroll] = useState(0);
-
   /*
-   * The timeline row's height, when the user has set one.
+   * Chords/lyrics panel height — this panel's own, independent of every other.
    *
-   * null means "take whatever's left of the window", which is the default and
-   * what fits a big screen. Dragging the grip under the lyrics pins an explicit
-   * height instead: the row grows, the lyrics panel inside it grows with it
-   * (it's the flex:1 child), and the page scrolls to reach the mixer below.
-   * The height lives here, on the element that owns the space, rather than in
-   * the panel — the panel can't grow past a row that hasn't.
+   * null means "fill the column below Idea Drop", the default. A number is the
+   * height the grip was dragged to: the lyrics panel grows and Idea Drop above
+   * it gives up the room, so the timeline row keeps its height and the timeline
+   * doesn't move. An earlier version drove the whole timeline row's height from
+   * this grip, which is what dragged the timeline down with it — a panel handle
+   * should resize its panel and nothing else.
    */
-  const rowRef = useRef<HTMLDivElement | null>(null);
-  const [rowHeight, setRowHeight] = useState<number | null>(null);
+  const rightColRef = useRef<HTMLDivElement | null>(null);
+  const lyricsRef = useRef<HTMLDivElement | null>(null);
+  const [lyricsHeight, setLyricsHeight] = useState<number | null>(null);
 
-  const grabRow = useCallback((e: React.PointerEvent) => {
+  const grabLyrics = useCallback((e: React.PointerEvent) => {
     e.preventDefault();
     const startY = e.clientY;
-    const startH = rowRef.current?.getBoundingClientRect().height ?? 0;
-    // 160 keeps a couple of lanes and the ruler visible — below that the
-    // timeline is a sliver and you've lost the thing the lyrics play against.
-    const move = (ev: PointerEvent) => setRowHeight(Math.max(160, startH + (ev.clientY - startY)));
+    const startH = lyricsRef.current?.getBoundingClientRect().height ?? 200;
+    // Leave Idea Drop at least ~90px so dragging the lyrics tall never swallows
+    // the file list whole, and keep the lyrics themselves at least readable.
+    const colH = rightColRef.current?.getBoundingClientRect().height ?? 600;
+    const max = Math.max(160, colH - 90);
+    const move = (ev: PointerEvent) =>
+      setLyricsHeight(Math.min(max, Math.max(120, startH + (ev.clientY - startY))));
     const up = () => {
       window.removeEventListener("pointermove", move);
       window.removeEventListener("pointerup", up);
@@ -908,16 +912,7 @@ export default function DawApp() {
       )}
 
       {stage.name === "loading" && (
-        <section style={S.panel}>
-          <p style={S.note}>
-            {stage.progress
-              ? `Loading ${stage.progress.index} of ${stage.progress.total} — ${stage.progress.name}`
-              : "Starting the engine…"}
-          </p>
-          <p style={S.noteFaint}>
-            Audio is decoded in this browser. Nothing is uploaded.
-          </p>
-        </section>
+        <LoadingPanel skin={skin} accent={accent.solid} progress={stage.progress} />
       )}
 
       {stage.name === "loaded" && session && (
@@ -973,12 +968,8 @@ export default function DawApp() {
             shrinks with the window moves the thing you were about to click.
           */}
           <div
-            ref={rowRef}
             style={{
-              display: "flex", gap: 10, minHeight: 0,
-              // Fill the window by default; hold a dragged height once set.
-              flex: rowHeight === null ? 1 : "0 0 auto",
-              height: rowHeight ?? undefined,
+              display: "flex", gap: 10, minHeight: 0, flex: 1,
             }}
           >
             <div
@@ -1065,12 +1056,21 @@ export default function DawApp() {
 
             {song && (
               <div
+                ref={rightColRef}
                 style={{
                   width: SIDE_COL, flex: "0 0 auto", minHeight: 0,
-                  display: "flex", flexDirection: "column", gap: 10,
+                  display: "flex", flexDirection: "column", gap: 10, overflow: "hidden",
                 }}
               >
-                <div style={{ flex: "0 0 auto" }}>
+                {/* Idea Drop yields height when the lyrics are dragged tall, and
+                    keeps its own scroll so a long file list is still reachable. */}
+                <div
+                  style={
+                    lyricsHeight === null
+                      ? { flex: "0 0 auto" }
+                      : { flex: "1 1 auto", minHeight: 60, overflow: "auto" }
+                  }
+                >
                   <Browser
                     song={song}
                     skin={skin}
@@ -1079,13 +1079,21 @@ export default function DawApp() {
                     onDelete={(file) => setPending({ kind: "delete-file", file })}
                   />
                 </div>
-                {/* Below Idea Drop, filling the column the old form left empty. */}
-                <div style={{ flex: 1, minHeight: 0 }}>
+                {/* The lyrics own their height. The grip under them sets it; Idea
+                    Drop above absorbs the change, so the timeline stays put. */}
+                <div
+                  ref={lyricsRef}
+                  style={
+                    lyricsHeight === null
+                      ? { flex: 1, minHeight: 0 }
+                      : { flex: `0 0 ${lyricsHeight}px`, minHeight: 0 }
+                  }
+                >
                   <ChordsPanel
                     skin={skin}
                     text={song.lyricsChords}
-                    onGrab={grabRow}
-                    onReset={() => setRowHeight(null)}
+                    onGrab={grabLyrics}
+                    onReset={() => setLyricsHeight(null)}
                   />
                 </div>
               </div>

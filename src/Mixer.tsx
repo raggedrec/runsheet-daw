@@ -25,6 +25,7 @@ import { useMasterMeter } from "./useEngineMeter";
 import { control, font, laneColorFor, radius, readableOn, size, space, type Skin } from "./theme";
 import { DeviceView } from "./DeviceView";
 import { EffectsRack } from "./EffectsRack";
+import { PanelBoundary } from "./PanelBoundary";
 
 export interface MixerProps {
   project: Project;
@@ -213,15 +214,17 @@ export function Mixer({ project, lanes, skin, accent, revision, onChanged, input
               revision={revision}
               onChanged={onChanged}
             />
-            <DeviceView
-              project={project}
-              devices={devices}
-              trackName={openName ?? "this track"}
-              skin={skin}
-              accent={accent}
-              revision={revision}
-              onChanged={onChanged}
-            />
+            <PanelBoundary skin={skin} label="device">
+              <DeviceView
+                project={project}
+                devices={devices}
+                trackName={openName ?? "this track"}
+                skin={skin}
+                accent={accent}
+                revision={revision}
+                onChanged={onChanged}
+              />
+            </PanelBoundary>
           </div>
         ) : (
           /* Scrolls sideways rather than shrinking strips to unusable widths —

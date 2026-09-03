@@ -17,11 +17,10 @@ export interface ChordsPanelProps {
   /**
    * Start a drag on the bottom grip, or null for no grip.
    *
-   * The panel doesn't own its own height. It fills the column it's in, so the
-   * only way it gets taller is for that column's row to get taller — which is
-   * the layout's business, not this panel's. The grip lives here because this is
-   * the bottom edge the user reaches for; the resizing happens where the space
-   * actually is. One source of truth for the height, as ever.
+   * The grip reports the drag; the height it produces lives one level up, on the
+   * wrapper this panel fills. Dragging it grows the lyrics and shrinks Idea Drop
+   * above — the timeline row is untouched, so the panel resizes independently of
+   * everything beside it. One owner for the height, as ever, and it isn't here.
    */
   onGrab?: ((e: React.PointerEvent) => void) | null;
   /** Double-click the grip: back to filling the column. */

@@ -39,15 +39,48 @@ export interface SavedSession {
 
 export async function saveSession(song: Song, data: ArrayBufferLike): Promise<SavedSession> {
   const blob = new Blob([data as ArrayBuffer], { type: "application/octet-stream" });
+  const path = sessionPath(song);
 
-  const { error } = await supabase.storage
+  /*
+   * Insert, then replace — never upsert.
+   *
+   * The bucket's policy grants INSERT and DELETE but not UPDATE, and `upsert:
+   * true` is an UPDATE the moment the file already exists. That's why the first
+   * save worked and the second failed with "new row violates row-level security
+   * policy": the second save was an overwrite. So the first attempt is a plain
+   * insert; only when the object is already there (a re-save) do we delete it and
+   * insert fresh — DELETE + INSERT, both of which the policy allows. The delete
+   * happens only after we know we're replacing, so a save is never thrown away
+   * before its replacement is written.
+   */
+  const first = await supabase.storage
     .from(BUCKET)
-    .upload(sessionPath(song), blob, { upsert: true, contentType: "application/octet-stream" });
+    .upload(path, blob, { upsert: false, contentType: "application/octet-stream" });
+  if (!first.error) return { savedAt: new Date(), bytes: blob.size };
 
-  if (error) {
+  // Anything other than "it already exists" is a real failure — report it as-is.
+  const exists = /exist|dupli|409/i.test(first.error.message);
+  if (!exists) {
     throw new LoadError(
-      `The session didn't save: ${error.message}`,
+      `The session didn't save: ${first.error.message}`,
       "Your take is still in Idea Drop if you saved it. The mix isn't stored yet — try again.",
+    );
+  }
+
+  const removed = await supabase.storage.from(BUCKET).remove([path]);
+  if (removed.error) {
+    throw new LoadError(
+      `The session didn't save: ${removed.error.message}`,
+      "The previous save is still in place; this change to it wasn't stored. Try again.",
+    );
+  }
+  const second = await supabase.storage
+    .from(BUCKET)
+    .upload(path, blob, { upsert: false, contentType: "application/octet-stream" });
+  if (second.error) {
+    throw new LoadError(
+      `The session didn't save: ${second.error.message}`,
+      "The old save was cleared but the new one didn't land — try again.",
     );
   }
   return { savedAt: new Date(), bytes: blob.size };
