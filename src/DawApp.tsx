@@ -1096,8 +1096,10 @@ export default function DawApp() {
                 </div>
                 {/* The lyrics fill the rest of the column and scroll inside it —
                     no resize, just a panel that takes the blank space and lets a
-                    long chart scroll up and down. */}
-                <div style={{ flex: 1, minHeight: 0 }}>
+                    long chart scroll up and down. display:flex here makes the
+                    panel stretch to this wrapper by flex, not by a height:100%
+                    that silently collapses when the chain isn't definite. */}
+                <div style={{ flex: 1, minHeight: 0, display: "flex" }}>
                   <ChordsPanel skin={skin} text={song.lyricsChords} />
                 </div>
               </div>
