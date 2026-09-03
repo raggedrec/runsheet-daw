@@ -929,19 +929,24 @@ export default function DawApp() {
         </section>
       )}
 
-      {stage.name === "ready" && song && (
-        <StartScreen
-          skin={skin}
-          accent={accent.solid}
-          accentFg={accent.fg}
-          song={song}
-          files={files}
-          onOpen={() => void open()}
-        />
-      )}
-
-      {stage.name === "loading" && (
-        <LoadingPanel skin={skin} accent={accent.solid} progress={stage.progress} />
+      {/* One screen: the song and its parts stay in view, and the loader drops
+          in beneath them once you open — rather than the stem list vanishing and
+          being replaced. The Open button locks while it loads. */}
+      {(stage.name === "ready" || stage.name === "loading") && song && (
+        <div style={{ display: "flex", flexDirection: "column", gap: space[4] }}>
+          <StartScreen
+            skin={skin}
+            accent={accent.solid}
+            accentFg={accent.fg}
+            song={song}
+            files={files}
+            onOpen={() => void open()}
+            loading={stage.name === "loading"}
+          />
+          {stage.name === "loading" && (
+            <LoadingPanel skin={skin} accent={accent.solid} progress={stage.progress} />
+          )}
+        </div>
       )}
 
       {stage.name === "loaded" && session && (

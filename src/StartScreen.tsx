@@ -24,9 +24,11 @@ export interface StartScreenProps {
   song: Song;
   files: ReadonlyArray<SongFile>;
   onOpen: () => void;
+  /** True once the load has begun — the button locks and the loader shows below. */
+  loading?: boolean;
 }
 
-export function StartScreen({ skin, accent, accentFg, song, files, onOpen }: StartScreenProps) {
+export function StartScreen({ skin, accent, accentFg, song, files, onOpen, loading = false }: StartScreenProps) {
   /*
    * The key is NOT uppercased with the others. "Cm" is C minor and "CM" is a
    * typo; "Bb" is B flat and "BB" is nothing. Case is meaning here.
@@ -124,16 +126,19 @@ export function StartScreen({ skin, accent, accentFg, song, files, onOpen }: Sta
       <div style={{ display: "flex", alignItems: "center", gap: space[4], flexWrap: "wrap" }}>
         <button
           onClick={onOpen}
+          disabled={loading}
           style={{
             display: "flex", alignItems: "center", gap: space[2],
             height: 42, paddingInline: 20,
             font: `600 ${size.md}px ${font.body}`,
             background: accent, color: accentFg,
-            border: "none", borderRadius: radius.sm, cursor: "pointer",
+            border: "none", borderRadius: radius.sm,
+            cursor: loading ? "default" : "pointer",
+            opacity: loading ? 0.6 : 1,
           }}
         >
           <Play size={15} fill="currentColor" />
-          Open the session
+          {loading ? "Opening…" : "Open the session"}
         </button>
 
         {/*
