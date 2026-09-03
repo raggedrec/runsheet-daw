@@ -987,11 +987,12 @@ export default function DawApp() {
             column beside them. Fixed because a file list that grows and
             shrinks with the window moves the thing you were about to click.
           */}
-          <div
-            style={{
-              display: "flex", gap: 10, minHeight: 0, flex: 1,
-            }}
-          >
+          <div style={{ display: "flex", gap: 10, minHeight: 0, flex: 1 }}>
+            {/* Left stack: the timeline on top, the mixer beneath it. Stacking
+                them frees the right column (Idea Drop + Chords) to run the full
+                height beside BOTH, so the lyrics fill straight down past the
+                mixer instead of stopping where the timeline stops. */}
+            <div style={{ display: "flex", flexDirection: "column", flex: 1, minWidth: 0, gap: 10 }}>
             <div
               style={{
                 display: "flex",
@@ -1077,6 +1078,25 @@ export default function DawApp() {
               </div>
             </div>
 
+            {/* The mixer, beneath the timeline in the left stack. A track's
+                effects live inside it — click a track name for its device panel.
+                No right spacer now: the full-height right column takes that edge. */}
+            <div style={{ display: "flex", flex: "0 0 auto", minHeight: 0 }}>
+              <Mixer
+                project={session.project}
+                lanes={lanes}
+                skin={skin}
+                accent={accent.solid}
+                revision={mixRevision}
+                onChanged={bump}
+                inputDevices={devices}
+                deviceId={deviceId}
+                onChooseDevice={chooseDevice}
+                colorFor={colorFor}
+              />
+            </div>
+            </div>
+
             {song && (
               <div
                 style={{
@@ -1094,39 +1114,14 @@ export default function DawApp() {
                     onDelete={(file) => setPending({ kind: "delete-file", file })}
                   />
                 </div>
-                {/* The lyrics fill the rest of the column and scroll inside it —
-                    no resize, just a panel that takes the blank space and lets a
-                    long chart scroll up and down. display:flex here makes the
-                    panel stretch to this wrapper by flex, not by a height:100%
-                    that silently collapses when the chain isn't definite. */}
+                {/* The lyrics fill the rest of this full-height column and scroll
+                    inside it. Running beside the mixer now, a long chart has real
+                    room to scroll down the page rather than a thin slot. */}
                 <div style={{ flex: 1, minHeight: 0, display: "flex" }}>
                   <ChordsPanel skin={skin} text={song.lyricsChords} />
                 </div>
               </div>
             )}
-          </div>
-
-          {/* The mixer takes the whole row now. A track's effects live inside
-              it — click a track name to open its device panel (chain + params) —
-              so there's no separate rack column floating over the lyrics. */}
-          {/* The mixer stops where the timeline stops: the spacer on the right
-              is the Idea Drop column's width, so the two rows share an edge
-              rather than the mixer running on under the file list. Strips that
-              don't fit the narrower panel scroll sideways inside it. */}
-          <div style={{ display: "flex", flex: "0 0 auto", minHeight: 0, gap: 10 }}>
-            <Mixer
-              project={session.project}
-              lanes={lanes}
-              skin={skin}
-              accent={accent.solid}
-              revision={mixRevision}
-              onChanged={bump}
-              inputDevices={devices}
-              deviceId={deviceId}
-              onChooseDevice={chooseDevice}
-              colorFor={colorFor}
-            />
-            <div style={{ width: SIDE_COL, flex: "0 0 auto" }} />
           </div>
 
           <StatusBar
