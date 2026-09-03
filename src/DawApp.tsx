@@ -21,7 +21,7 @@ import { S } from "./styles";
 import { Timeline } from "./Timeline";
 import { TransportBar } from "./TransportBar";
 import { useLook } from "./useLook";
-import { accents, skins, font, size, space } from "./theme";
+import { accents, skins, font, size, space, laneColorFor } from "./theme";
 import { StartScreen } from "./StartScreen";
 import { LoadingPanel } from "./LoadingPanel";
 import { Mixer, audibility } from "./Mixer";
@@ -42,6 +42,7 @@ import { bounceMix } from "./opendaw/bounce";
 import { encodeWav } from "./wav";
 import { Dialog } from "./Dialog";
 import { useTransport } from "./useTransport";
+import { useMetronome } from "./useMetronome";
 import {
   addRecordTrack, armTrack, captureFor, disarmAll, listInputs, RecordingError,
   startRecording as beginRecording, stopRecording as endRecording,
@@ -121,17 +122,59 @@ export default function DawApp() {
    * should resize its panel and nothing else.
    */
   const rightColRef = useRef<HTMLDivElement | null>(null);
+  const browserRef = useRef<HTMLDivElement | null>(null);
   const lyricsRef = useRef<HTMLDivElement | null>(null);
   const [lyricsHeight, setLyricsHeight] = useState<number | null>(null);
+
+  /*
+   * Per-track colours the musician chose, over the role-based default.
+   *
+   * One map, keyed by fileId, read by every panel through colorFor — so the
+   * stripe, the mixer strip and the coloured waveform can't disagree. Kept in
+   * localStorage per song rather than the openDAW graph, because the audio unit
+   * has no colour field to save it in; stems keep their fileId across a reload,
+   * so a chosen colour survives one.
+   */
+  const [trackColors, setTrackColors] = useState<Record<string, string>>({});
+  useEffect(() => {
+    if (!song) return;
+    try {
+      const raw = localStorage.getItem(`rsdaw:colors:${song.id}`);
+      setTrackColors(raw ? (JSON.parse(raw) as Record<string, string>) : {});
+    } catch {
+      setTrackColors({});
+    }
+  }, [song?.id]);
+  const colorFor = useCallback(
+    (lane: LoadedLane) => trackColors[lane.fileId] ?? laneColorFor(lane.name),
+    [trackColors],
+  );
+  const setLaneColor = useCallback(
+    (lane: LoadedLane, hex: string) => {
+      setTrackColors((current) => {
+        const next = { ...current, [lane.fileId]: hex };
+        try {
+          if (song) localStorage.setItem(`rsdaw:colors:${song.id}`, JSON.stringify(next));
+        } catch {
+          // A full or blocked store just means the colour won't outlive the tab.
+        }
+        return next;
+      });
+    },
+    [song?.id],
+  );
 
   const grabLyrics = useCallback((e: React.PointerEvent) => {
     e.preventDefault();
     const startY = e.clientY;
     const startH = lyricsRef.current?.getBoundingClientRect().height ?? 200;
-    // Leave Idea Drop at least ~90px so dragging the lyrics tall never swallows
-    // the file list whole, and keep the lyrics themselves at least readable.
+    // The lyrics resize only within their own column: from a readable floor up
+    // to the space left below Idea Drop, and no further. Clamped there so the
+    // grip never touches Idea Drop, the timeline or the mixer — it only fills
+    // the blank space between the lyrics and the bottom of the column.
     const colH = rightColRef.current?.getBoundingClientRect().height ?? 600;
-    const max = Math.max(160, colH - 90);
+    const browserH = browserRef.current?.getBoundingClientRect().height ?? 0;
+    const max = Math.max(120, colH - browserH - 10);
     const move = (ev: PointerEvent) =>
       setLyricsHeight(Math.min(max, Math.max(120, startH + (ev.clientY - startY))));
     const up = () => {
@@ -408,6 +451,14 @@ export default function DawApp() {
    */
   const transport = useTransport(session?.project ?? null, session?.audioContext ?? null);
   const seconds = transport.position;
+
+  /*
+   * The metronome lives in the engine's preferences (see useMetronome). It
+   * clicks through the count-in as before and, once switched on, through
+   * playback too — with its own level, because a click loud enough to catch
+   * over a full mix is too loud over a quiet intro.
+   */
+  const metronome = useMetronome(session?.project ?? null, session?.audioContext.sampleRate ?? null);
 
   /** Add a track, ask for the microphone, arm it. One button, three steps. */
   const addTrack = useCallback(
@@ -930,6 +981,10 @@ export default function DawApp() {
             isCountingIn={transport.isCountingIn}
             armedTrackName={recordTrack?.name ?? null}
             countIn={countIn}
+            metronome={metronome.enabled}
+            onMetronome={metronome.setEnabled}
+            clickGainDb={metronome.gainDb}
+            onClickGain={metronome.setGainDb}
             busy={busy}
             look={look}
             onLook={setLook}
@@ -1031,6 +1086,8 @@ export default function DawApp() {
                 addBusy={busy || isRecording}
                 selected={selected?.fileId ?? null}
                 onReorder={reorderLanes}
+                colorFor={colorFor}
+                onSetColor={setLaneColor}
               />
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <Timeline
@@ -1049,6 +1106,7 @@ export default function DawApp() {
                     scroll={scroll}
                     onScroll={setScroll}
                     colorWaveforms={look.colorWaveforms}
+                    colorFor={colorFor}
                   />
                 </div>
               </div>
@@ -1062,15 +1120,9 @@ export default function DawApp() {
                   display: "flex", flexDirection: "column", gap: 10, overflow: "hidden",
                 }}
               >
-                {/* Idea Drop yields height when the lyrics are dragged tall, and
-                    keeps its own scroll so a long file list is still reachable. */}
-                <div
-                  style={
-                    lyricsHeight === null
-                      ? { flex: "0 0 auto" }
-                      : { flex: "1 1 auto", minHeight: 60, overflow: "auto" }
-                  }
-                >
+                {/* Idea Drop keeps its natural height and never moves — the grip
+                    below has no claim on it. */}
+                <div ref={browserRef} style={{ flex: "0 0 auto" }}>
                   <Browser
                     song={song}
                     skin={skin}
@@ -1079,8 +1131,10 @@ export default function DawApp() {
                     onDelete={(file) => setPending({ kind: "delete-file", file })}
                   />
                 </div>
-                {/* The lyrics own their height. The grip under them sets it; Idea
-                    Drop above absorbs the change, so the timeline stays put. */}
+                {/* The lyrics fill the rest of the column by default. The grip
+                    only resizes this panel, within the column: dragging it fills
+                    the blank space down to the mixer, and no further — nothing
+                    else on screen moves. */}
                 <div
                   ref={lyricsRef}
                   style={
@@ -1118,6 +1172,7 @@ export default function DawApp() {
               inputDevices={devices}
               deviceId={deviceId}
               onChooseDevice={chooseDevice}
+              colorFor={colorFor}
             />
             <div style={{ width: SIDE_COL, flex: "0 0 auto" }} />
           </div>

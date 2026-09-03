@@ -11,8 +11,9 @@
  * keeps its own idea of whether the song is moving.
  */
 import { Circle, Play, SkipBack, Square } from "lucide-react";
-import { accents, font, radius, size, space, LANE_HEIGHT, type AccentName, type Look, type Skin } from "./theme";
+import { accents, control, font, radius, size, space, LANE_HEIGHT, type AccentName, type Look, type Skin } from "./theme";
 import { formatKey } from "./naming";
+import { CLICK_MIN_DB } from "./useMetronome";
 
 export interface TransportBarProps {
   skin: Skin;
@@ -28,6 +29,12 @@ export interface TransportBarProps {
   /** Null when no track is armed — Record is then unavailable, with a reason. */
   armedTrackName: string | null;
   countIn: boolean;
+  /** Metronome: audible click through playback, not just the count-in. */
+  metronome: boolean;
+  onMetronome: (on: boolean) => void;
+  /** Click level, in dB (≤ 0). */
+  clickGainDb: number;
+  onClickGain: (db: number) => void;
   busy: boolean;
   look: Look;
   onLook: (patch: Partial<Look>) => void;
@@ -162,6 +169,43 @@ export function TransportBar(p: TransportBarProps) {
         />
         Count-in
       </label>
+
+      {/*
+        The click. Its own toggle rather than riding on Count-in, because they're
+        different wants — count me in, versus keep time the whole way through —
+        and a level beside it, since a click has to be heard over the mix without
+        drowning it. dB, not a 0..1 knob, to match the engine's own scale.
+      */}
+      <div style={{ display: "flex", alignItems: "center", gap: 6, height: 34 }}>
+        <button
+          onClick={() => p.onMetronome(!p.metronome)}
+          aria-pressed={p.metronome}
+          title={p.metronome ? "Click on — playing through the song" : "Click off"}
+          style={{
+            display: "flex", alignItems: "center", gap: 5, height: 26, paddingInline: 8,
+            font: `700 ${size.xs}px ${font.body}`, letterSpacing: ".04em",
+            color: p.metronome ? "#fff" : skin.fgSubtle,
+            background: p.metronome ? control.solo : "transparent",
+            border: `1px solid ${p.metronome ? control.solo : skin.border}`,
+            borderRadius: radius.sm, cursor: "pointer",
+          }}
+        >
+          <ClickGlyph on={p.metronome} />
+          Click
+        </button>
+        <input
+          type="range"
+          min={CLICK_MIN_DB}
+          max={0}
+          step={1}
+          value={Math.max(CLICK_MIN_DB, Math.round(p.clickGainDb))}
+          disabled={!p.metronome}
+          onChange={(e) => p.onClickGain(Number(e.target.value))}
+          title={`Click level ${Math.round(p.clickGainDb)} dB`}
+          aria-label="Click level"
+          style={{ width: 64, accentColor: control.solo, opacity: p.metronome ? 1 : 0.4 }}
+        />
+      </div>
 
       {/* Tabular figures, or the whole bar shifts once a second as digits
           change width. */}
@@ -346,6 +390,19 @@ function LookControls({
         Colour
       </label>
     </div>
+  );
+}
+
+/** A little metronome: a wedge with a pendulum, leaning when it's on. */
+function ClickGlyph({ on }: { on: boolean }) {
+  return (
+    <svg width={11} height={13} viewBox="0 0 11 13" fill="none" aria-hidden>
+      <path d="M3 1.5 L8 1.5 L10 11.5 L1 11.5 Z" stroke="currentColor" strokeWidth={1.2} strokeLinejoin="round" />
+      <line
+        x1={5.5} y1={10} x2={on ? 7.5 : 5.5} y2={3.5}
+        stroke="currentColor" strokeWidth={1.2} strokeLinecap="round"
+      />
+    </svg>
   );
 }
 

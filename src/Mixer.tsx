@@ -22,7 +22,7 @@ import type { LoadedLane } from "./opendaw/loadSong";
 import type { InputDevice } from "./opendaw/recording";
 import { useInputMeter } from "./useInputMeter";
 import { useMasterMeter } from "./useEngineMeter";
-import { control, font, laneColorFor, radius, readableOn, size, space, type Skin } from "./theme";
+import { control, font, radius, readableOn, size, space, type Skin } from "./theme";
 import { DeviceView } from "./DeviceView";
 import { EffectsRack } from "./EffectsRack";
 import { PanelBoundary } from "./PanelBoundary";
@@ -38,6 +38,8 @@ export interface MixerProps {
   inputDevices: InputDevice[];
   deviceId: string | null;
   onChooseDevice: (deviceId: string) => void;
+  /** A lane's colour — the chosen one, or the role default. */
+  colorFor: (lane: LoadedLane) => string;
 }
 
 /** Sentinel for "the master's device chain is open", since master isn't a lane. */
@@ -55,7 +57,7 @@ function isMaximizer(effect: unknown): boolean {
   return (ctor?.ClassName ?? "").startsWith("Maximizer");
 }
 
-export function Mixer({ project, lanes, skin, accent, revision, onChanged, inputDevices, deviceId, onChooseDevice }: MixerProps) {
+export function Mixer({ project, lanes, skin, accent, revision, onChanged, inputDevices, deviceId, onChooseDevice, colorFor }: MixerProps) {
   /*
    * One panel, two views. Clicking a track name in the list swaps the strips
    * for that track's devices; clicking it again goes back. The mixer and the
@@ -167,7 +169,7 @@ export function Mixer({ project, lanes, skin, accent, revision, onChanged, input
               <span
                 style={{
                   width: 3, height: 14, borderRadius: 2, flex: "0 0 auto",
-                  background: laneColorFor(lane.name),
+                  background: colorFor(lane),
                 }}
               />
               {lane.name.toUpperCase()}
@@ -236,7 +238,7 @@ export function Mixer({ project, lanes, skin, accent, revision, onChanged, input
                 project={project}
                 unit={lane.unit}
                 name={lane.name}
-                colour={laneColorFor(lane.name)}
+                colour={colorFor(lane)}
                 skin={skin}
                 accent={accent}
                 revision={revision}

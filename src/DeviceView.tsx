@@ -14,7 +14,7 @@
  * always 0..1 and each parameter's own curve does the work. A linear slider
  * over a decibel range spends most of its travel somewhere useless.
  */
-import { useCallback } from "react";
+import { useCallback, useRef } from "react";
 import type { Project } from "@opendaw/studio-core";
 import { font, radius, size, space, type Skin } from "./theme";
 
@@ -163,12 +163,14 @@ export function DeviceView({ project, devices, trackName, skin, accent, revision
         const device = d as DeviceAdapterish;
         const rows = collectParams(device.namedParameter);
         const enabled = device.enabledField?.getValue() ?? true;
+        const flat = rows.filter((r) => r.group === null);
+        const bands = groupRows(rows);
 
         return (
           <div
             key={i}
             style={{
-              width: 232, flex: "0 0 auto",
+              flex: "0 0 auto", maxWidth: "100%",
               background: skin.surface,
               border: `1px solid ${skin.border}`,
               borderRadius: radius.md,
@@ -214,31 +216,45 @@ export function DeviceView({ project, devices, trackName, skin, accent, revision
                 </p>
               )}
 
-              {rows.map((row, r) => (
-                <div key={row.id}>
-                  {/* Band heading, printed once when the band changes — so the EQ
-                      reads as seven labelled bands rather than a flat wall of
-                      "frequency / gain / q" repeated seven times. */}
-                  {row.group && row.group !== rows[r - 1]?.group && (
-                    <p
-                      style={{
-                        font: `700 ${size.xs}px ${font.body}`,
-                        letterSpacing: ".06em", textTransform: "uppercase",
-                        color: skin.fgMuted, margin: `${r === 0 ? 0 : space[3]}px 0 2px`,
-                      }}
-                    >
-                      {row.group}
-                    </p>
-                  )}
-                  <ParamRow
-                    keyName={row.keyName}
-                    param={row.param}
-                    skin={skin}
-                    accent={accent}
-                    onWrite={write}
-                  />
+              {/* Flat devices (compressor, gate…): a row of knobs that wraps. */}
+              {flat.length > 0 && (
+                <div style={{ display: "flex", flexWrap: "wrap", gap: space[3] }}>
+                  {flat.map((row) => (
+                    <Control key={row.id} keyName={row.keyName} param={row.param} skin={skin} accent={accent} onWrite={write} />
+                  ))}
                 </div>
-              ))}
+              )}
+
+              {/* Grouped devices (the EQ's seven bands): each band is a column,
+                  and the bands run ACROSS the panel, not stacked — stacked, they
+                  made a device taller than the whole screen. */}
+              {bands.length > 0 && (
+                <div
+                  style={{
+                    display: "flex", gap: space[4], alignItems: "flex-start",
+                    marginTop: flat.length > 0 ? space[4] : 0,
+                  }}
+                >
+                  {bands.map((band) => (
+                    <div key={band.name} style={{ flex: "0 0 auto" }}>
+                      <p
+                        style={{
+                          font: `700 ${size.xs}px ${font.body}`,
+                          letterSpacing: ".06em", textTransform: "uppercase",
+                          color: skin.fgMuted, margin: `0 0 ${space[2]}px`, textAlign: "center",
+                        }}
+                      >
+                        {band.name}
+                      </p>
+                      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: space[3] }}>
+                        {band.rows.map((row) => (
+                          <Control key={row.id} keyName={row.keyName} param={row.param} skin={skin} accent={accent} onWrite={write} />
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         );
@@ -247,7 +263,23 @@ export function DeviceView({ project, devices, trackName, skin, accent, revision
   );
 }
 
-function ParamRow({
+/** Rows grouped by band, in first-seen order; flat (ungrouped) rows excluded. */
+function groupRows(rows: ParamRowSpec[]): Array<{ name: string; rows: ParamRowSpec[] }> {
+  const order: string[] = [];
+  const byName = new Map<string, ParamRowSpec[]>();
+  for (const row of rows) {
+    if (row.group === null) continue;
+    if (!byName.has(row.group)) {
+      byName.set(row.group, []);
+      order.push(row.group);
+    }
+    byName.get(row.group)!.push(row);
+  }
+  return order.map((name) => ({ name, rows: byName.get(name)! }));
+}
+
+/** One parameter: a checkbox for a boolean, a knob for a number. */
+function Control({
   param, keyName, skin, accent, onWrite,
 }: {
   param: Param;
@@ -262,9 +294,8 @@ function ParamRow({
     return (
       <label
         style={{
-          display: "flex", alignItems: "center", gap: 6,
-          padding: "3px 0",
-          font: `${size.sm}px ${font.body}`, color: skin.fgMuted, cursor: "pointer",
+          display: "flex", alignItems: "center", gap: 5,
+          font: `${size.xs}px ${font.body}`, color: skin.fgMuted, cursor: "pointer",
         }}
       >
         <input
@@ -284,54 +315,115 @@ function ParamRow({
   try {
     unit = param.valueMapping.x(numeric as never);
   } catch {
-    // A mapping that can't place this value is not worth an error boundary;
-    // the slider just starts at the left.
+    // A mapping that can't place this value isn't worth an error boundary;
+    // the knob just starts at its minimum.
   }
+  const u = Number.isFinite(unit) ? Math.min(1, Math.max(0, unit)) : 0;
 
   return (
-    <div style={{ padding: "3px 0" }}>
-      <div style={{ display: "flex", justifyContent: "space-between", gap: 6 }}>
-        <span
-          style={{
-            font: `${size.xs}px ${font.body}`, color: skin.fgSubtle,
-            display: "flex", alignItems: "center", gap: 4,
-          }}
-        >
-          {label}
-          {/* A tempo-synced parameter moves when the song's BPM does. Worth
-              saying, because "0.25" and "1/4" are the same number until the
-              tempo changes and only one of them follows. */}
-          {synced && (
-            <span
-              title="Follows the project tempo"
-              style={{
-                font: `700 9px ${font.body}`, letterSpacing: ".06em",
-                color: accent, border: `1px solid ${accent}`,
-                borderRadius: 2, padding: "0 3px",
-              }}
-            >
-              SYNC
-            </span>
-          )}
-        </span>
-        <span
-          style={{
-            font: `500 ${size.xs}px ${font.mono}`, color: skin.fgMuted,
-            fontVariantNumeric: "tabular-nums",
-          }}
-        >
-          {printed(param, numeric)}
-        </span>
-      </div>
-      <input
-        type="range"
-        min={0} max={1} step={0.001}
-        value={Number.isFinite(unit) ? Math.min(1, Math.max(0, unit)) : 0}
-        onChange={(e) => onWrite(() => param.setUnitValue(Number(e.target.value)))}
-        style={{ width: "100%", height: 3, accentColor: accent }}
+    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 3, width: 66 }}>
+      <span
+        style={{
+          font: `${size.xs}px ${font.body}`, color: skin.fgSubtle,
+          textAlign: "center", lineHeight: 1.15, height: 26,
+          display: "flex", alignItems: "center", justifyContent: "center", gap: 3,
+        }}
+      >
+        {label}
+        {synced && (
+          <span
+            title="Follows the project tempo"
+            style={{
+              font: `700 8px ${font.body}`, letterSpacing: ".06em",
+              color: accent, border: `1px solid ${accent}`, borderRadius: 2, padding: "0 2px",
+            }}
+          >
+            SYNC
+          </span>
+        )}
+      </span>
+      <Knob unit={u} accent={accent} skin={skin} title={label} onChange={(v) => onWrite(() => param.setUnitValue(v))} />
+      <span
+        style={{
+          font: `500 ${size.xs}px ${font.mono}`, color: skin.fgMuted,
+          fontVariantNumeric: "tabular-nums",
+        }}
+      >
+        {printed(param, numeric)}
+      </span>
+    </div>
+  );
+}
+
+/**
+ * A knob, dragged vertically. Same gesture as the mixer's pan knob — up is more,
+ * down is less — over the parameter's 0..1 unit range, so the curve baked into
+ * each parameter does the work and the knob stays linear in feel. The indicator
+ * sweeps 270°, the usual hardware throw.
+ */
+function Knob({
+  unit, accent, skin, title, onChange,
+}: {
+  unit: number;
+  accent: string;
+  skin: Skin;
+  title: string;
+  onChange: (v: number) => void;
+}) {
+  const start = useRef<{ y: number; v: number } | null>(null);
+  const onDown = useCallback(
+    (e: React.PointerEvent) => {
+      e.preventDefault();
+      start.current = { y: e.clientY, v: unit };
+      const move = (ev: PointerEvent) => {
+        if (!start.current) return;
+        // ~160px of travel spans the whole range — enough to be precise without
+        // running off the panel on the parameters with the widest swing.
+        const dv = (start.current.y - ev.clientY) / 160;
+        onChange(Math.max(0, Math.min(1, start.current.v + dv)));
+      };
+      const up = () => {
+        start.current = null;
+        window.removeEventListener("pointermove", move);
+        window.removeEventListener("pointerup", up);
+      };
+      window.addEventListener("pointermove", move);
+      window.addEventListener("pointerup", up);
+    },
+    [unit, onChange],
+  );
+
+  const angle = -135 + u01(unit) * 270;
+  return (
+    <div
+      onPointerDown={onDown}
+      title={`${title} — drag`}
+      style={{ position: "relative", width: 34, height: 34, cursor: "ns-resize", touchAction: "none" }}
+    >
+      <div
+        style={{
+          position: "absolute", inset: 0, borderRadius: 999,
+          border: `1px solid ${skin.border}`,
+          backgroundImage: "linear-gradient(180deg, #30353b, #16191d)",
+          boxShadow: "0 1px 3px rgba(0,0,0,.5), inset 0 1px 0 rgba(255,255,255,.06)",
+        }}
+      />
+      {/* A faint arc track, and the indicator at the value's angle. */}
+      <div
+        style={{
+          position: "absolute", left: "50%", top: "50%", width: 2, height: 14,
+          background: accent, borderRadius: 1,
+          transformOrigin: "bottom center",
+          transform: `translate(-50%, -100%) rotate(${angle}deg)`,
+        }}
       />
     </div>
   );
+}
+
+/** Clamp to 0..1, so a stray mapping can't throw the indicator off the dial. */
+function u01(v: number): number {
+  return Number.isFinite(v) ? Math.min(1, Math.max(0, v)) : 0;
 }
 
 /**

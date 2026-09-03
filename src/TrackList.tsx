@@ -12,7 +12,7 @@
  */
 import { useState } from "react";
 import { GripVertical, Plus, X } from "lucide-react";
-import { control, font, laneColorFor, radius, readableOn, size, type Skin } from "./theme";
+import { control, font, radius, readableOn, size, TRACK_PALETTE, type Skin } from "./theme";
 import type { LoadedLane } from "./opendaw/loadSong";
 
 /** Matches the timeline's ruler, so row one starts level with bar one. */
@@ -39,10 +39,14 @@ export interface TrackListProps {
   selected: string | null;
   /** Drag a track to a new position. Moves it in the mixer too — same list. */
   onReorder: (from: number, to: number) => void;
+  /** A lane's colour — the chosen one, or the role default. */
+  colorFor: (lane: LoadedLane) => string;
+  /** Pick a colour for a track. Every panel reads it back through colorFor. */
+  onSetColor: (lane: LoadedLane, hex: string) => void;
 }
 
 export function TrackList({
-  lanes, skin, laneHeight, muted, soloed, armed, onMute, onSolo, onArm, onSelect, onRename, onRemove, onAddTrack, addBusy, selected, onReorder,
+  lanes, skin, laneHeight, muted, soloed, armed, onMute, onSolo, onArm, onSelect, onRename, onRemove, onAddTrack, addBusy, selected, onReorder, colorFor, onSetColor,
 }: TrackListProps) {
   /*
    * Drag state, held here rather than lifted: nothing outside this column needs
@@ -103,16 +107,16 @@ export function TrackList({
               // The line marks where it lands — above or below, depending on
               // which way you dragged, because that is where it will actually go.
               boxShadow: isDropTarget
-                ? `inset 0 ${dragFrom > index ? "2px" : "-2px"} 0 0 ${laneColorFor(lane.name)}`
+                ? `inset 0 ${dragFrom > index ? "2px" : "-2px"} 0 0 ${colorFor(lane)}`
                 : undefined,
             }}
           >
-            {/* Role stripe: drums always red, vocals always amber, whatever
-                order the stems arrived in. */}
+            {/* The track's colour stripe: the role default until the musician
+                picks one from the swatch in the row below. */}
             <span
               style={{
                 position: "absolute", left: 0, top: 0, bottom: 0, width: 4,
-                background: laneColorFor(lane.name),
+                background: colorFor(lane),
               }}
             />
 
@@ -205,6 +209,12 @@ export function TrackList({
                 skin={skin}
                 onClick={() => onArm(lane)}
               />
+              <LaneColor
+                name={lane.name}
+                color={colorFor(lane)}
+                skin={skin}
+                onPick={(hex) => onSetColor(lane, hex)}
+              />
             </div>
           </div>
         );
@@ -230,6 +240,82 @@ export function TrackList({
         <Plus size={14} />
         Add track
       </button>
+    </div>
+  );
+}
+
+/**
+ * The track's colour swatch and picker.
+ *
+ * A fixed palette with a custom well at the bottom: ten choices cover almost
+ * every session, and the well is there for the one time they don't. The popover
+ * closes on an outside click via a full-screen catcher behind it — cheaper and
+ * more reliable than chasing focus across a dozen rows.
+ */
+function LaneColor({
+  name, color, skin, onPick,
+}: {
+  name: string;
+  color: string;
+  skin: Skin;
+  onPick: (hex: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div style={{ position: "relative", marginLeft: "auto" }}>
+      <button
+        onClick={() => setOpen((o) => !o)}
+        title={`Colour for ${name}`}
+        aria-label={`Colour for ${name}`}
+        style={{
+          width: 22, height: 22, padding: 0, cursor: "pointer",
+          display: "grid", placeItems: "center",
+          background: "transparent", border: `1px solid ${skin.border}`, borderRadius: radius.sm,
+        }}
+      >
+        <span style={{ width: 12, height: 12, borderRadius: 3, background: color, border: "1px solid rgba(0,0,0,.25)" }} />
+      </button>
+      {open && (
+        <>
+          <div onClick={() => setOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 30 }} />
+          <div
+            style={{
+              position: "absolute", zIndex: 31, top: 26, right: 0,
+              padding: 8, background: skin.surface,
+              border: `1px solid ${skin.borderStrong}`, borderRadius: radius.md,
+              boxShadow: "0 6px 20px rgba(0,0,0,.35)",
+              display: "grid", gridTemplateColumns: "repeat(5, 18px)", gap: 6,
+            }}
+          >
+            {TRACK_PALETTE.map((hex) => (
+              <button
+                key={hex}
+                onClick={() => { onPick(hex); setOpen(false); }}
+                title={hex}
+                aria-label={hex}
+                style={{
+                  width: 18, height: 18, borderRadius: 4, background: hex, cursor: "pointer", padding: 0,
+                  border: hex.toLowerCase() === color.toLowerCase() ? `2px solid ${skin.fg}` : "1px solid rgba(0,0,0,.25)",
+                }}
+              />
+            ))}
+            <label
+              style={{
+                gridColumn: "1 / -1", display: "flex", alignItems: "center", gap: 6, marginTop: 4,
+                font: `${size.xs}px ${font.body}`, color: skin.fgMuted, cursor: "pointer",
+              }}
+            >
+              <input
+                type="color"
+                value={/^#[0-9a-f]{6}$/i.test(color) ? color : "#6b7b8c"}
+                onChange={(e) => onPick(e.target.value)}
+                style={{ width: 24, height: 20, padding: 0, border: "none", background: "transparent", cursor: "pointer" }}
+              />
+              Custom
+            </label>
+          </div>
+        </>
+      )}
     </div>
   );
 }

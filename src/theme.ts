@@ -157,6 +157,20 @@ export function laneColorFor(name: string): string {
 }
 
 /**
+ * The swatches the track colour picker offers.
+ *
+ * The role colours first — so the automatic choice is one click to confirm —
+ * then a spread across the wheel for the times a musician wants their own. A
+ * fixed set rather than a free colour wheel because ten deliberate, legible
+ * colours beat sixteen million, most of which vanish against one skin or the
+ * other.
+ */
+export const TRACK_PALETTE: ReadonlyArray<string> = [
+  brand.red, brand.amber, control.solo, brand.teal, brand.blue,
+  "#3B9E5A", "#7A5230", "#8A6B2F", "#9C4F9C", "#6B7B8C",
+];
+
+/**
  * Black ink or white, whichever reads on a given solid colour — so a label on
  * the yellow solo isn't the washed-out white that works on the red and green.
  * WCAG relative luminance, dark ink above the mid threshold.

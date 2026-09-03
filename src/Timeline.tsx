@@ -14,7 +14,7 @@
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import { PeaksPainter } from "@opendaw/lib-fusion";
 import type { LoadedLane } from "./opendaw/loadSong";
-import { font, laneColorFor, size, type Skin } from "./theme";
+import { font, size, type Skin } from "./theme";
 
 /**
  * A hex skin colour at a given alpha, for gradient stops and the baseline.
@@ -62,12 +62,14 @@ export interface TimelineProps {
   gutter?: number;
   /** Tint each waveform its track's role colour instead of the skin default. */
   colorWaveforms?: boolean;
+  /** A lane's colour — the chosen one, or the role default. */
+  colorFor: (lane: LoadedLane) => string;
 }
 
 export function Timeline({
   lanes, skin, accent, laneHeight, position, duration, bpm, muted, soloed, onScrub,
   gutter = GUTTER,
-  zoom, scroll, onScroll, colorWaveforms = false,
+  zoom, scroll, onScroll, colorWaveforms = false, colorFor,
 }: TimelineProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const wrapRef = useRef<HTMLDivElement | null>(null);
@@ -165,7 +167,7 @@ export function Timeline({
           // White (the skin default) unless the user opts to tint each waveform
           // its track's role colour. Muted lanes stay grey either way — muted is
           // "off", and a colour would argue otherwise.
-          const waveColour = colorWaveforms ? laneColorFor(lane.name) : skin.wave;
+          const waveColour = colorWaveforms ? colorFor(lane) : skin.wave;
           for (let ch = 0; ch < channels; ch++) {
             const y0 = top + pad + ch * chHeight;
             const y1 = y0 + chHeight;
@@ -271,9 +273,8 @@ export function Timeline({
       const top = RULER_HEIGHT + i * laneHeight;
       ctx.fillStyle = skin.surface;
       ctx.fillRect(0, top, GUTTER, laneHeight);
-      // A role stripe: drums always red, vocals always yellow, whatever order
-      // the stems happen to be in.
-      ctx.fillStyle = laneColorFor(lane.name);
+      // The track's colour stripe (chosen, or the role default).
+      ctx.fillStyle = colorFor(lane);
       ctx.fillRect(0, top, 4, laneHeight);
       ctx.fillStyle = audible.get(lane.fileId) === false ? skin.fgSubtle : skin.fg;
       ctx.font = `500 ${size.xs}px ${font.body}`;
@@ -302,7 +303,7 @@ export function Timeline({
     ctx.lineTo(px, 8);
     ctx.closePath();
     ctx.fill();
-  }, [lanes, skin, accent, laneHeight, position, duration, bpm, audible, height, gutter, zoom, scroll, colorWaveforms]);
+  }, [lanes, skin, accent, laneHeight, position, duration, bpm, audible, height, gutter, zoom, scroll, colorWaveforms, colorFor]);
 
   useEffect(() => {
     draw();
