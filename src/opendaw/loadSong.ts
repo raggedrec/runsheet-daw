@@ -110,12 +110,70 @@ export interface LoadProgress {
   name: string;
 }
 
-interface Prepared {
+export interface Prepared {
   file: SongFile;
   sample: Sample;
   audio: AudioData;
   peaks: Peaks;
   uuid: UUID.Bytes;
+}
+
+/**
+ * Fetches, imports and decodes every file into openDAW's store, returning what
+ * landed. This is the slow half of a load, split out so both a fresh load and a
+ * session reopen can populate the store the same way.
+ *
+ * Sample ids are content hashes (importFile does UUID.sha256 of the bytes), so a
+ * stem imported today gets the same id it had when a session was saved — which
+ * is exactly what lets a saved graph's region find its audio again on reopen.
+ */
+export async function prepareSamples(
+  sampleService: SampleService,
+  files: SongFile[],
+  bpm: number,
+  onProgress?: (p: LoadProgress) => void,
+): Promise<Prepared[]> {
+  const prepared: Prepared[] = [];
+  for (const [i, file] of files.entries()) {
+    onProgress?.({ index: i + 1, total: files.length, name: file.name });
+
+    // Already in this browser's store? Skip the download and the decode.
+    const cachedUuid = readCache()[file.id];
+    if (cachedUuid !== undefined) {
+      const uuid = UUID.parse(cachedUuid);
+      if (await SampleStorage.get().exists(uuid)) {
+        const [audio, peaks, meta] = await SampleStorage.get().load(uuid);
+        prepared.push({
+          file,
+          sample: { uuid: cachedUuid, name: meta.name, duration: meta.duration, bpm: meta.bpm } as Sample,
+          audio,
+          peaks,
+          uuid,
+        });
+        continue;
+      }
+    }
+
+    const url = await signedUrl(file.storagePath);
+    const response = await fetchWithTimeout(url, file.name);
+    if (!response.ok) {
+      throw new Error(`Couldn't fetch ${file.name} (${response.status})`);
+    }
+    const arrayBuffer = await response.arrayBuffer();
+
+    const sample = await sampleService.importFile({
+      name: file.name,
+      bpm,
+      arrayBuffer,
+      origin: "import",
+    });
+
+    const uuid = UUID.parse(sample.uuid);
+    const [audio, peaks] = await SampleStorage.get().load(uuid);
+    rememberSample(file.id, sample.uuid);
+    prepared.push({ file, sample, audio, peaks, uuid });
+  }
+  return prepared;
 }
 
 /**
@@ -135,56 +193,7 @@ export async function loadSongIntoProject(
   const bpm = tempoOf(song.bpm) ?? 120;
 
   // --- Pass one: everything slow -------------------------------------------
-  const prepared: Prepared[] = [];
-  for (const [i, file] of files.entries()) {
-    onProgress?.({ index: i + 1, total: files.length, name: file.name });
-
-    /*
-     * Already imported in this browser? Then skip the download and the decode
-     * entirely — the audio, its peaks and its metadata are all in the store.
-     */
-    const cachedUuid = readCache()[file.id];
-    if (cachedUuid !== undefined) {
-      const uuid = UUID.parse(cachedUuid);
-      if (await SampleStorage.get().exists(uuid)) {
-        const [audio, peaks, meta] = await SampleStorage.get().load(uuid);
-        prepared.push({
-          file,
-          // The store's own metadata, so a cached sample and a fresh one carry
-          // the same shape downstream.
-          sample: { uuid: cachedUuid, name: meta.name, duration: meta.duration, bpm: meta.bpm } as Sample,
-          audio,
-          peaks,
-          uuid,
-        });
-        continue;
-      }
-    }
-
-    const url = await signedUrl(file.storagePath);
-    const response = await fetchWithTimeout(url, file.name);
-    if (!response.ok) {
-      throw new Error(`Couldn't fetch ${file.name} (${response.status})`);
-    }
-    const arrayBuffer = await response.arrayBuffer();
-
-    /*
-     * importFile decodes, writes to openDAW's own store and returns metadata.
-     * The store is what the engine reads from later, which is why this can't
-     * be skipped by handing the engine an AudioBuffer directly.
-     */
-    const sample = await sampleService.importFile({
-      name: file.name,
-      bpm,
-      arrayBuffer,
-      origin: "import",
-    });
-
-    const uuid = UUID.parse(sample.uuid);
-    const [audio, peaks] = await SampleStorage.get().load(uuid);
-    rememberSample(file.id, sample.uuid);
-    prepared.push({ file, sample, audio, peaks, uuid });
-  }
+  const prepared = await prepareSamples(sampleService, files, bpm, onProgress);
 
   // The AudioFileBox has to be created inside the transaction, but building
   // its creator is async — so that's done out here and called in there.
@@ -282,6 +291,45 @@ export async function loadSongIntoProject(
  * engine log panel before trusting it; the checkpoint's warnings about guessing
  * at openDAW's graph apply in full.
  */
+/**
+ * Rebuilds the lane list from a reopened session, using freshly-imported peaks.
+ *
+ * The saved graph is the truth for the arrangement — order, effects, faders. But
+ * its waveforms live in the store keyed by sample id, and whether the adapter has
+ * lazily loaded them back is exactly the flaky part. So rather than trust
+ * `file.peaks`, this matches each region's sample id to a sample we just imported
+ * (`prepareSamples`), whose peaks are in hand — content-hash ids make that match
+ * exact. One lane per audio unit that carries a matched region; the master has no
+ * region and drops out. A region whose id we didn't import (a recorded take,
+ * whose stored WAV hashes differently to the take in the graph) is skipped — its
+ * audio isn't in this browser, so there's nothing to draw or play for it.
+ */
+export function lanesFromSavedProject(project: Project, prepared: Prepared[]): LoadedLane[] {
+  const byUuid = new Map(prepared.map((p) => [UUID.toString(p.uuid), p]));
+  const lanes: LoadedLane[] = [];
+  for (const unit of project.rootBoxAdapter.audioUnits.adapters()) {
+    let added = false;
+    for (const track of unit.tracks.values()) {
+      for (const region of track.regions.adapters.values()) {
+        if (!region.isAudioRegion()) continue;
+        const match = byUuid.get(UUID.toString(region.file.uuid));
+        if (match === undefined) continue;
+        lanes.push({
+          name: unit.label,
+          fileId: match.file.id,
+          seconds: match.sample.duration,
+          peaks: match.peaks,
+          unit: unit.box,
+        });
+        added = true;
+        break;
+      }
+      if (added) break;
+    }
+  }
+  return lanes;
+}
+
 export function lanesFromProject(project: Project): LoadedLane[] {
   const lanes: LoadedLane[] = [];
   for (const unit of project.rootBoxAdapter.audioUnits.adapters()) {

@@ -8,9 +8,11 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { boot, startAudio, BootError, type BootResult } from "./opendawBoot";
-import { createSession, type DawSession } from "./opendaw/session";
+import { createSession, loadSessionProject, startSessionEngine, type DawSession } from "./opendaw/session";
 import {
   loadSongIntoProject,
+  prepareSamples,
+  lanesFromSavedProject,
   tempoOf,
   type LoadedLane,
   type LoadProgress,
@@ -36,7 +38,7 @@ import {
 } from "./opendaw/markers";
 import { useConsoleLog } from "./useConsoleLog";
 import { collectTakes } from "./opendaw/take";
-import { saveSession } from "./session";
+import { saveSession, loadSession } from "./session";
 import { uploadToIdeaDrop, downloadUrl, deleteIdeaDropFile } from "./runsheet";
 import { bounceMix } from "./opendaw/bounce";
 import { encodeWav } from "./wav";
@@ -256,18 +258,43 @@ export default function DawApp() {
           started.reason ?? "No reason was reported. Check the console.",
         );
       }
+      const onProgress = (progress: LoadProgress) => setStage({ name: "loading", progress });
+
       /*
-       * Always a fresh load from the stems, for now.
+       * Reopen a saved mix when there is one.
        *
-       * Reopening a saved session (loadSessionProject / lanesFromProject, still
-       * in the opendaw layer) is shelved: cross-session the samples aren't in
-       * this browser's store, so it never actually reopened — it loaded the graph
-       * only to fall back to a fresh load anyway — and that extra
-       * load-then-terminate on the shared AudioContext made the loader hang
-       * intermittently. It comes back when the missing-samples re-import is built
-       * and it can be verified end to end. Saving still works; loading a saved
-       * mix does not yet.
+       * The saved graph carries the whole mix — faders, pans, order, effects. Its
+       * regions reference samples by content-hash id, so re-importing the same
+       * stems (prepareSamples) puts those exact ids back in the store and the
+       * graph reconnects. Deliberately one worklet: the graph is loaded and read
+       * WITHOUT starting audio (loadSessionProject), lanes are built from it, and
+       * only if that yields lanes do we start the engine. If it doesn't resolve
+       * (a stem gone from Idea Drop, say), the reopened project never touched the
+       * audio graph, so it's terminated cleanly and we fall through to a fresh
+       * load — no second engine on the shared context, which is what used to hang.
        */
+      const savedBuffer = await loadSession(song).catch(() => null);
+      if (savedBuffer) {
+        const reopened = await loadSessionProject(bootResult, savedBuffer);
+        const prepared = await prepareSamples(
+          reopened.sampleService,
+          files,
+          song?.bpm ? tempoOf(song.bpm) ?? 120 : 120,
+          onProgress,
+        );
+        const savedLanes = lanesFromSavedProject(reopened.project, prepared);
+        if (savedLanes.length > 0) {
+          await startSessionEngine(reopened.project);
+          setSession(reopened);
+          setLanes(savedLanes);
+          setStage({ name: "loaded" });
+          return;
+        }
+        // Nothing resolved — this project never started its worklet, so dropping
+        // it is safe. Fall through to a fresh load below.
+        reopened.project.terminate();
+      }
+
       const created = await createSession(bootResult);
       setSession(created);
 
@@ -276,7 +303,7 @@ export default function DawApp() {
         created.sampleService,
         song,
         files,
-        (progress) => setStage({ name: "loading", progress }),
+        onProgress,
       );
       setLanes(result);
       setStage({ name: "loaded" });
