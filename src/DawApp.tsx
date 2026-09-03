@@ -6,7 +6,7 @@
  * just for following a link. The button also gives the browser the user
  * gesture it needs before an AudioContext will run.
  */
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { boot, startAudio, BootError, type BootResult } from "./opendawBoot";
 import { createSession, type DawSession } from "./opendaw/session";
 import {
@@ -111,20 +111,6 @@ export default function DawApp() {
   /** Horizontal zoom: 1 = whole song across the width. */
   const [zoom, setZoom] = useState(1);
   const [scroll, setScroll] = useState(0);
-  /*
-   * Chords/lyrics panel height — this panel's own, independent of every other.
-   *
-   * null means "fill the column below Idea Drop", the default. A number is the
-   * height the grip was dragged to: the lyrics panel grows and Idea Drop above
-   * it gives up the room, so the timeline row keeps its height and the timeline
-   * doesn't move. An earlier version drove the whole timeline row's height from
-   * this grip, which is what dragged the timeline down with it — a panel handle
-   * should resize its panel and nothing else.
-   */
-  const rightColRef = useRef<HTMLDivElement | null>(null);
-  const browserRef = useRef<HTMLDivElement | null>(null);
-  const lyricsRef = useRef<HTMLDivElement | null>(null);
-  const [lyricsHeight, setLyricsHeight] = useState<number | null>(null);
 
   /*
    * Per-track colours the musician chose, over the role-based default.
@@ -163,27 +149,6 @@ export default function DawApp() {
     },
     [song?.id],
   );
-
-  const grabLyrics = useCallback((e: React.PointerEvent) => {
-    e.preventDefault();
-    const startY = e.clientY;
-    const startH = lyricsRef.current?.getBoundingClientRect().height ?? 200;
-    // The lyrics resize only within their own column: from a readable floor up
-    // to the space left below Idea Drop, and no further. Clamped there so the
-    // grip never touches Idea Drop, the timeline or the mixer — it only fills
-    // the blank space between the lyrics and the bottom of the column.
-    const colH = rightColRef.current?.getBoundingClientRect().height ?? 600;
-    const browserH = browserRef.current?.getBoundingClientRect().height ?? 0;
-    const max = Math.max(120, colH - browserH - 10);
-    const move = (ev: PointerEvent) =>
-      setLyricsHeight(Math.min(max, Math.max(120, startH + (ev.clientY - startY))));
-    const up = () => {
-      window.removeEventListener("pointermove", move);
-      window.removeEventListener("pointerup", up);
-    };
-    window.addEventListener("pointermove", move);
-    window.addEventListener("pointerup", up);
-  }, []);
 
   /*
    * The log opens itself the first time something goes wrong, and stays shut
@@ -1114,15 +1079,13 @@ export default function DawApp() {
 
             {song && (
               <div
-                ref={rightColRef}
                 style={{
                   width: SIDE_COL, flex: "0 0 auto", minHeight: 0,
                   display: "flex", flexDirection: "column", gap: 10, overflow: "hidden",
                 }}
               >
-                {/* Idea Drop keeps its natural height and never moves — the grip
-                    below has no claim on it. */}
-                <div ref={browserRef} style={{ flex: "0 0 auto" }}>
+                {/* Idea Drop keeps its natural height. */}
+                <div style={{ flex: "0 0 auto" }}>
                   <Browser
                     song={song}
                     skin={skin}
@@ -1131,24 +1094,11 @@ export default function DawApp() {
                     onDelete={(file) => setPending({ kind: "delete-file", file })}
                   />
                 </div>
-                {/* The lyrics fill the rest of the column by default. The grip
-                    only resizes this panel, within the column: dragging it fills
-                    the blank space down to the mixer, and no further — nothing
-                    else on screen moves. */}
-                <div
-                  ref={lyricsRef}
-                  style={
-                    lyricsHeight === null
-                      ? { flex: 1, minHeight: 0 }
-                      : { flex: `0 0 ${lyricsHeight}px`, minHeight: 0 }
-                  }
-                >
-                  <ChordsPanel
-                    skin={skin}
-                    text={song.lyricsChords}
-                    onGrab={grabLyrics}
-                    onReset={() => setLyricsHeight(null)}
-                  />
+                {/* The lyrics fill the rest of the column and scroll inside it —
+                    no resize, just a panel that takes the blank space and lets a
+                    long chart scroll up and down. */}
+                <div style={{ flex: 1, minHeight: 0 }}>
+                  <ChordsPanel skin={skin} text={song.lyricsChords} />
                 </div>
               </div>
             )}

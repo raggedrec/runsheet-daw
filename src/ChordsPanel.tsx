@@ -14,20 +14,9 @@ import { font, radius, size, space, type Skin } from "./theme";
 export interface ChordsPanelProps {
   skin: Skin;
   text: string;
-  /**
-   * Start a drag on the bottom grip, or null for no grip.
-   *
-   * The grip reports the drag; the height it produces lives one level up, on the
-   * wrapper this panel fills. Dragging it grows the lyrics and shrinks Idea Drop
-   * above — the timeline row is untouched, so the panel resizes independently of
-   * everything beside it. One owner for the height, as ever, and it isn't here.
-   */
-  onGrab?: ((e: React.PointerEvent) => void) | null;
-  /** Double-click the grip: back to filling the column. */
-  onReset?: () => void;
 }
 
-export function ChordsPanel({ skin, text, onGrab, onReset }: ChordsPanelProps) {
+export function ChordsPanel({ skin, text }: ChordsPanelProps) {
   const has = text.trim().length > 0;
   return (
     <section
@@ -64,9 +53,9 @@ export function ChordsPanel({ skin, text, onGrab, onReset }: ChordsPanelProps) {
         </h2>
       </header>
 
-      {/* flex:1 + minHeight:0 makes THIS the scroll box. Without the flex it
-          sizes to its content and the whole page scrolls instead, dragging the
-          DAW around when you read down a long lyric. */}
+      {/* flex:1 + minHeight:0 makes THIS the scroll box: the panel fills the
+          column and a long chart scrolls up and down inside it, rather than
+          sizing to its content and dragging the whole page around. */}
       <div style={{ flex: 1, minHeight: 0, padding: space[3], overflow: "auto", overscrollBehavior: "contain" }}>
         {has ? (
           <pre
@@ -87,25 +76,6 @@ export function ChordsPanel({ skin, text, onGrab, onReset }: ChordsPanelProps) {
           </p>
         )}
       </div>
-
-      {/* The grip. Drag down for more of the chart — the row grows and the page
-          scrolls to it. On the bottom edge because that's the edge that moves. */}
-      {onGrab && (
-        <div
-          onPointerDown={onGrab}
-          onDoubleClick={onReset}
-          title="Drag down for more lyrics — double-click to fit the window"
-          style={{
-            flex: "0 0 auto", height: 11,
-            display: "grid", placeItems: "center",
-            borderTop: `1px solid ${skin.border}`,
-            background: skin.surfaceSunken,
-            cursor: "ns-resize", touchAction: "none",
-          }}
-        >
-          <span style={{ width: 26, height: 2, borderRadius: 1, background: skin.borderStrong }} />
-        </div>
-      )}
     </section>
   );
 }
