@@ -13,8 +13,9 @@
  * Writes go inside project.editing.modify(), because openDAW refuses box
  * writes outside a transaction.
  */
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { Project } from "@opendaw/studio-core";
+import { EffectFactories } from "@opendaw/studio-core";
 import { AudioUnitBoxAdapter } from "@opendaw/studio-adapters";
 import type { AudioUnitBox } from "@opendaw/studio-boxes";
 import type { LoadedLane } from "./opendaw/loadSong";
@@ -38,6 +39,21 @@ export interface MixerProps {
   onChooseDevice: (deviceId: string) => void;
 }
 
+/** Sentinel for "the master's device chain is open", since master isn't a lane. */
+const MASTER_KEY = "__master__";
+
+/**
+ * Whether an effect adapter is a Maximizer.
+ *
+ * By openDAW's static ClassName, never constructor.name — that returns a single
+ * minified letter in production, so a name check would pass in dev and quietly
+ * fail once shipped.
+ */
+function isMaximizer(effect: unknown): boolean {
+  const ctor = (effect as { box?: { constructor?: { ClassName?: string } } })?.box?.constructor;
+  return (ctor?.ClassName ?? "").startsWith("Maximizer");
+}
+
 export function Mixer({ project, lanes, skin, accent, revision, onChanged, inputDevices, deviceId, onChooseDevice }: MixerProps) {
   /*
    * One panel, two views. Clicking a track name in the list swaps the strips
@@ -49,11 +65,50 @@ export function Mixer({ project, lanes, skin, accent, revision, onChanged, input
   const masterLevel = useMasterMeter(project);
 
   const master = project.rootBoxAdapter.audioUnits.adapters().find((a) => a.isOutput);
-  const open = openTrack ? lanes.find((l) => l.fileId === openTrack) ?? null : null;
-  const openAdapter = open
-    ? project.rootBoxAdapter.audioUnits.adapters().find((a) => a.box === open.unit)
-    : undefined;
+
+  // A track's device panel, or the master's — the master is reachable so a
+  // limiter (the Maximizer) can sit on the mix bus, which is where it belongs.
+  const openLane = openTrack && openTrack !== MASTER_KEY ? lanes.find((l) => l.fileId === openTrack) ?? null : null;
+  const openAdapter = openLane
+    ? project.rootBoxAdapter.audioUnits.adapters().find((a) => a.box === openLane.unit)
+    : openTrack === MASTER_KEY
+      ? master
+      : undefined;
+  const openUnit = openLane?.unit ?? (openTrack === MASTER_KEY ? master?.box ?? null : null);
+  const openName = openLane?.name ?? (openTrack === MASTER_KEY ? "Master" : null);
+  const isOpen = openUnit !== null;
   const devices = openAdapter?.audioEffects.mapOr((c) => c.adapters(), () => []) ?? [];
+
+  /*
+   * The master limiter (openDAW's Maximizer). It ships ON by default — a mix bus
+   * without a ceiling clips the moment two loud parts land together — but stays
+   * a choice: the LIM button on the master strip removes it or puts it back. We
+   * insert it once, the first time a master with an empty chain is seen; after
+   * that its presence is just whatever the graph (and any saved session) holds.
+   */
+  const masterEffects = master?.audioEffects.mapOr((c) => c.adapters(), () => []) ?? [];
+  const limiter = masterEffects.find(isMaximizer) ?? null;
+  const ensuredLimiter = useRef(false);
+  useEffect(() => {
+    if (!master || ensuredLimiter.current) return;
+    ensuredLimiter.current = true;
+    if (master.audioEffects.mapOr((c) => c.adapters().length, () => 0) > 0) return;
+    const field = master.audioEffectsField;
+    if (field.isEmpty()) return;
+    project.editing.modify(() => project.api.insertEffect(field.unwrap(), EffectFactories.Maximizer as never));
+    onChanged();
+  }, [master, project, onChanged]);
+
+  const toggleLimiter = useCallback(() => {
+    if (!master) return;
+    const field = master.audioEffectsField;
+    const existing = master.audioEffects.mapOr((c) => c.adapters().find(isMaximizer), () => undefined);
+    project.editing.modify(() => {
+      if (existing) (existing.box as unknown as { delete: () => void }).delete();
+      else if (!field.isEmpty()) project.api.insertEffect(field.unwrap(), EffectFactories.Maximizer as never);
+    });
+    onChanged();
+  }, [master, project, onChanged]);
 
   return (
     <section
@@ -63,6 +118,11 @@ export function Mixer({ project, lanes, skin, accent, revision, onChanged, input
         borderRadius: radius.md,
         overflow: "hidden",
         display: "flex",
+        // Fills the space left of the Idea Drop column, so the mixer's right
+        // edge lands on the timeline's. minWidth:0 is what lets the strips
+        // scroll inside it instead of forcing the panel wider than its slot.
+        flex: 1,
+        minWidth: 0,
       }}
     >
       {/* The track list, always present, so the way back is where the way in
@@ -83,7 +143,7 @@ export function Mixer({ project, lanes, skin, accent, revision, onChanged, input
             color: skin.fgSubtle, margin: `${space[1]}px 0 ${space[2]}px ${space[2]}px`,
           }}
         >
-          {open ? "Devices" : "Mixer"}
+          {isOpen ? "Devices" : "Mixer"}
         </h2>
 
         {lanes.map((lane) => {
@@ -114,19 +174,40 @@ export function Mixer({ project, lanes, skin, accent, revision, onChanged, input
           );
         })}
 
+        {/* The master's own device chain — a limiter belongs on the mix bus, so
+            the master has to be reachable the same way a track is. */}
+        {master && (
+          <button
+            onClick={() => setOpenTrack(openTrack === MASTER_KEY ? null : MASTER_KEY)}
+            title={openTrack === MASTER_KEY ? "Back to the mixer" : "Devices on the master bus"}
+            style={{
+              display: "flex", alignItems: "center", gap: 8,
+              width: "100%", textAlign: "left",
+              padding: "5px 8px", marginTop: 4,
+              background: openTrack === MASTER_KEY ? skin.surface : "transparent",
+              border: "none", borderRadius: radius.sm, cursor: "pointer",
+              font: `600 ${size.sm}px ${font.body}`,
+              color: openTrack === MASTER_KEY ? skin.fg : skin.fgMuted,
+            }}
+          >
+            <span style={{ width: 3, height: 14, borderRadius: 2, flex: "0 0 auto", background: skin.borderStrong }} />
+            MASTER
+          </button>
+        )}
+
         <InputPicker skin={skin} devices={inputDevices} deviceId={deviceId} onChoose={onChooseDevice} />
       </div>
 
       <div style={{ flex: 1, minWidth: 0, background: skin.surfaceSunken }}>
-        {open ? (
+        {isOpen && openUnit ? (
           /* One place for a track's devices: the chain (add/remove) on top, the
              parameters below. This replaced a separate Effects panel that
              floated over the lyrics — clicking a track name here is the way in. */
           <div style={{ display: "flex", flexDirection: "column", gap: space[3], padding: space[3], overflow: "auto" }}>
             <EffectsRack
               project={project}
-              unit={open.unit}
-              trackName={open.name}
+              unit={openUnit}
+              trackName={openName}
               skin={skin}
               accent={accent}
               revision={revision}
@@ -135,7 +216,7 @@ export function Mixer({ project, lanes, skin, accent, revision, onChanged, input
             <DeviceView
               project={project}
               devices={devices}
-              trackName={open.name}
+              trackName={openName ?? "this track"}
               skin={skin}
               accent={accent}
               revision={revision}
@@ -172,6 +253,8 @@ export function Mixer({ project, lanes, skin, accent, revision, onChanged, input
                 onChanged={onChanged}
                 isMaster
                 meterLevel={masterLevel}
+                limiterOn={limiter !== null}
+                onToggleLimiter={toggleLimiter}
               />
             )}
           </div>
@@ -182,7 +265,7 @@ export function Mixer({ project, lanes, skin, accent, revision, onChanged, input
 }
 
 function Strip({
-  project, unit, name, colour, skin, accent, revision, onChanged, isMaster = false, meterLevel,
+  project, unit, name, colour, skin, accent, revision, onChanged, isMaster = false, meterLevel, limiterOn, onToggleLimiter,
 }: {
   project: Project;
   unit: AudioUnitBox;
@@ -195,6 +278,9 @@ function Strip({
   isMaster?: boolean;
   /** Master output peak, 0..1, when this is the master strip. */
   meterLevel?: number;
+  /** Master only: whether the Maximizer is on the bus, and the toggle for it. */
+  limiterOn?: boolean;
+  onToggleLimiter?: () => void;
 }) {
   void revision; // the trigger to re-read; values always come from the graph
   const volume = unit.volume.getValue();
@@ -255,6 +341,15 @@ function Strip({
         {!isMaster && (
           <button onClick={() => write(() => unit.solo.setValue(!soloed))} style={toggle(soloed, control.solo)} title="Solo">
             S
+          </button>
+        )}
+        {isMaster && onToggleLimiter && (
+          <button
+            onClick={onToggleLimiter}
+            style={toggle(limiterOn === true, accent)}
+            title={limiterOn ? "Limiter on the mix bus — click to remove" : "Add a limiter (Maximizer) to the mix bus"}
+          >
+            LIM
           </button>
         )}
       </div>

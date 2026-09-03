@@ -14,9 +14,21 @@ import { font, radius, size, space, type Skin } from "./theme";
 export interface ChordsPanelProps {
   skin: Skin;
   text: string;
+  /**
+   * Start a drag on the bottom grip, or null for no grip.
+   *
+   * The panel doesn't own its own height. It fills the column it's in, so the
+   * only way it gets taller is for that column's row to get taller — which is
+   * the layout's business, not this panel's. The grip lives here because this is
+   * the bottom edge the user reaches for; the resizing happens where the space
+   * actually is. One source of truth for the height, as ever.
+   */
+  onGrab?: ((e: React.PointerEvent) => void) | null;
+  /** Double-click the grip: back to filling the column. */
+  onReset?: () => void;
 }
 
-export function ChordsPanel({ skin, text }: ChordsPanelProps) {
+export function ChordsPanel({ skin, text, onGrab, onReset }: ChordsPanelProps) {
   const has = text.trim().length > 0;
   return (
     <section
@@ -76,6 +88,25 @@ export function ChordsPanel({ skin, text }: ChordsPanelProps) {
           </p>
         )}
       </div>
+
+      {/* The grip. Drag down for more of the chart — the row grows and the page
+          scrolls to it. On the bottom edge because that's the edge that moves. */}
+      {onGrab && (
+        <div
+          onPointerDown={onGrab}
+          onDoubleClick={onReset}
+          title="Drag down for more lyrics — double-click to fit the window"
+          style={{
+            flex: "0 0 auto", height: 11,
+            display: "grid", placeItems: "center",
+            borderTop: `1px solid ${skin.border}`,
+            background: skin.surfaceSunken,
+            cursor: "ns-resize", touchAction: "none",
+          }}
+        >
+          <span style={{ width: 26, height: 2, borderRadius: 1, background: skin.borderStrong }} />
+        </div>
+      )}
     </section>
   );
 }

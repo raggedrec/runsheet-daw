@@ -11,7 +11,7 @@
  * pixel per row are visibly wrong by the fourth track.
  */
 import { useState } from "react";
-import { Plus, X } from "lucide-react";
+import { GripVertical, Plus, X } from "lucide-react";
 import { control, font, laneColorFor, radius, readableOn, size, type Skin } from "./theme";
 import type { LoadedLane } from "./opendaw/loadSong";
 
@@ -37,11 +37,21 @@ export interface TrackListProps {
   /** Disables Add while a track is being created or a take is running. */
   addBusy: boolean;
   selected: string | null;
+  /** Drag a track to a new position. Moves it in the mixer too — same list. */
+  onReorder: (from: number, to: number) => void;
 }
 
 export function TrackList({
-  lanes, skin, laneHeight, muted, soloed, armed, onMute, onSolo, onArm, onSelect, onRename, onRemove, onAddTrack, addBusy, selected,
+  lanes, skin, laneHeight, muted, soloed, armed, onMute, onSolo, onArm, onSelect, onRename, onRemove, onAddTrack, addBusy, selected, onReorder,
 }: TrackListProps) {
+  /*
+   * Drag state, held here rather than lifted: nothing outside this column needs
+   * to know a drag is in progress, and the reorder itself is reported as one
+   * from/to when the drop lands.
+   */
+  const [dragFrom, setDragFrom] = useState<number | null>(null);
+  const [dragOver, setDragOver] = useState<number | null>(null);
+
   return (
     <div
       style={{
@@ -54,16 +64,30 @@ export function TrackList({
       {/* Spacer that lines the first track up with the first bar. */}
       <div style={{ height: RULER_HEIGHT, borderBottom: `1px solid ${skin.laneLine}` }} />
 
-      {lanes.map((lane) => {
+      {lanes.map((lane, index) => {
         const isMuted = muted.has(lane.fileId);
         const isSoloed = soloed.has(lane.fileId);
         const anySolo = soloed.size > 0;
         // Audible is not the same as unmuted: one solo silences everything else.
         const audible = anySolo ? isSoloed : !isMuted;
+        const isDropTarget = dragOver === index && dragFrom !== null && dragFrom !== index;
 
         return (
           <div
             key={lane.fileId}
+            onDragOver={(e) => {
+              // Without preventDefault the drop never fires — the browser's
+              // default is "this element rejects drops".
+              if (dragFrom === null) return;
+              e.preventDefault();
+              setDragOver(index);
+            }}
+            onDrop={(e) => {
+              e.preventDefault();
+              if (dragFrom !== null && dragFrom !== index) onReorder(dragFrom, index);
+              setDragFrom(null);
+              setDragOver(null);
+            }}
             style={{
               height: laneHeight,
               display: "flex",
@@ -75,6 +99,12 @@ export function TrackList({
               background: selected === lane.fileId ? skin.surfaceSunken : "transparent",
               position: "relative",
               boxSizing: "border-box",
+              opacity: dragFrom === index ? 0.4 : 1,
+              // The line marks where it lands — above or below, depending on
+              // which way you dragged, because that is where it will actually go.
+              boxShadow: isDropTarget
+                ? `inset 0 ${dragFrom > index ? "2px" : "-2px"} 0 0 ${laneColorFor(lane.name)}`
+                : undefined,
             }}
           >
             {/* Role stripe: drums always red, vocals always amber, whatever
@@ -85,6 +115,35 @@ export function TrackList({
                 background: laneColorFor(lane.name),
               }}
             />
+
+            {/*
+              Drag here to reorder. A dedicated grip rather than a draggable
+              row: the row holds a rename field and three toggles you press
+              constantly, and making all of that drag-initiating turns every
+              slightly-moved click into an accidental reorder.
+            */}
+            <span
+              draggable
+              onDragStart={(e) => {
+                setDragFrom(index);
+                e.dataTransfer.effectAllowed = "move";
+                // Firefox won't start a drag without payload, even unused.
+                e.dataTransfer.setData("text/plain", String(index));
+              }}
+              onDragEnd={() => {
+                setDragFrom(null);
+                setDragOver(null);
+              }}
+              title={`Drag to reorder ${lane.name}`}
+              style={{
+                position: "absolute", top: 4, left: 5,
+                display: "grid", placeItems: "center",
+                width: 14, height: 18,
+                color: skin.fgSubtle, cursor: "grab",
+              }}
+            >
+              <GripVertical size={12} />
+            </span>
 
             {/* Remove the lane. Top-right, out of the way of the controls you
                 use constantly — this one you reach for rarely and on purpose. */}

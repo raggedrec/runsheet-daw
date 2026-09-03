@@ -6,7 +6,7 @@
  * just for following a link. The button also gives the browser the user
  * gesture it needs before an AudioContext will run.
  */
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { boot, startAudio, BootError, type BootResult } from "./opendawBoot";
 import { createSession, type DawSession } from "./opendaw/session";
 import {
@@ -46,6 +46,17 @@ import {
   startRecording as beginRecording, stopRecording as endRecording,
   type InputDevice, type RecordTrack,
 } from "./opendaw/recording";
+
+/**
+ * The Idea Drop / lyrics column, and the gutter the mixer leaves to line up
+ * with the timeline above it.
+ *
+ * Responsive rather than a flat 250px: on a 1280 screen it's 250, on a 13"
+ * laptop it gives width back to the timeline, which is the panel that actually
+ * needs it. One expression, used by both the column and the mixer's spacer —
+ * two numbers that must match are one number.
+ */
+const SIDE_COL = "clamp(180px, 20vw, 250px)";
 
 type Stage =
   | { name: "booting" }
@@ -98,6 +109,34 @@ export default function DawApp() {
   /** Horizontal zoom: 1 = whole song across the width. */
   const [zoom, setZoom] = useState(1);
   const [scroll, setScroll] = useState(0);
+
+  /*
+   * The timeline row's height, when the user has set one.
+   *
+   * null means "take whatever's left of the window", which is the default and
+   * what fits a big screen. Dragging the grip under the lyrics pins an explicit
+   * height instead: the row grows, the lyrics panel inside it grows with it
+   * (it's the flex:1 child), and the page scrolls to reach the mixer below.
+   * The height lives here, on the element that owns the space, rather than in
+   * the panel — the panel can't grow past a row that hasn't.
+   */
+  const rowRef = useRef<HTMLDivElement | null>(null);
+  const [rowHeight, setRowHeight] = useState<number | null>(null);
+
+  const grabRow = useCallback((e: React.PointerEvent) => {
+    e.preventDefault();
+    const startY = e.clientY;
+    const startH = rowRef.current?.getBoundingClientRect().height ?? 0;
+    // 160 keeps a couple of lanes and the ruler visible — below that the
+    // timeline is a sliver and you've lost the thing the lyrics play against.
+    const move = (ev: PointerEvent) => setRowHeight(Math.max(160, startH + (ev.clientY - startY)));
+    const up = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+  }, []);
 
   /*
    * The log opens itself the first time something goes wrong, and stays shut
@@ -263,6 +302,46 @@ export default function DawApp() {
       bump();
     },
     [session, bump],
+  );
+
+  /**
+   * Move a track to a new position, in the graph and in the lane list.
+   *
+   * openDAW already owns track order — every audio unit carries an `index`, and
+   * `audioUnits` is an IndexedBoxAdapterCollection whose `move` rewrites those
+   * indices. So the order goes there, which means a saved session reopens in the
+   * order you left it; `lanes` is reordered to match because it's what the
+   * timeline and the mixer both render from. Reordering only the array would
+   * have given two answers to "what order are the tracks in", and the graph's
+   * would have won the moment anything re-read it.
+   *
+   * Positions are converted through the collection rather than assumed equal to
+   * lane positions: the master unit lives in the same collection, so lane index
+   * and collection index are not the same number.
+   */
+  const reorderLanes = useCallback(
+    (from: number, to: number) => {
+      if (!session || from === to) return;
+      if (from < 0 || to < 0 || from >= lanes.length || to >= lanes.length) return;
+
+      const collection = session.project.rootBoxAdapter.audioUnits;
+      const adapters = collection.adapters();
+      const moving = adapters.find((a) => a.box === lanes[from].unit);
+      const target = adapters.find((a) => a.box === lanes[to].unit);
+      if (moving && target) {
+        const delta = adapters.indexOf(target) - adapters.indexOf(moving);
+        if (delta !== 0) session.project.editing.modify(() => collection.move(moving, delta));
+      }
+
+      setLanes((current) => {
+        const next = [...current];
+        const [lane] = next.splice(from, 1);
+        next.splice(to, 0, lane);
+        return next;
+      });
+      bump();
+    },
+    [session, lanes, bump],
   );
 
   const toggleMute = useCallback(
@@ -689,11 +768,25 @@ export default function DawApp() {
   const save = useCallback(async () => {
     if (!session || !song) return;
     setSaveState("saving");
+    setRecError(null);
     try {
       await saveSession(song, session.project.toArrayBuffer());
       setSaveState("saved");
-    } catch {
+    } catch (err) {
+      /*
+       * Say what actually went wrong. This used to swallow the error and only
+       * flip the button to "Retry save", which made "Save is broken" impossible
+       * to diagnose — the whole point of the engine-log panel is that we read
+       * what the engine (or Supabase) reported, not guess. LoadError already
+       * carries a message and a remedy; anything else we surface raw.
+       */
+      console.error("[save] session save failed:", err);
       setSaveState("failed");
+      setRecError(
+        err instanceof LoadError
+          ? { message: err.message, remedy: err.remedy }
+          : { message: "The session didn't save.", remedy: err instanceof Error ? err.message : String(err) },
+      );
     }
   }, [session, song]);
 
@@ -754,7 +847,19 @@ export default function DawApp() {
               padding: 12,
               gap: 10,
               boxSizing: "border-box",
-              overflow: "hidden",
+              /*
+               * Vertical scroll as the fallback, not clipping.
+               *
+               * On a big screen nothing overflows and this never engages. On a
+               * small laptop — or once the lyrics grip has pulled the timeline
+               * row taller — the faders and the status bar used to be cut off
+               * with no way to reach them, because a fixed 100vh with
+               * overflow:hidden hides whatever doesn't fit. Scrolling to a
+               * control is worse than seeing it; not being able to reach it at
+               * all is worse than both.
+               */
+              overflowX: "hidden",
+              overflowY: "auto",
               font: `13px/1.5 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif`,
             }
           : { ...S.page, color: skin.fg, maxWidth: 1180 }
@@ -867,7 +972,15 @@ export default function DawApp() {
             column beside them. Fixed because a file list that grows and
             shrinks with the window moves the thing you were about to click.
           */}
-          <div style={{ display: "flex", gap: 10, flex: 1, minHeight: 0 }}>
+          <div
+            ref={rowRef}
+            style={{
+              display: "flex", gap: 10, minHeight: 0,
+              // Fill the window by default; hold a dragged height once set.
+              flex: rowHeight === null ? 1 : "0 0 auto",
+              height: rowHeight ?? undefined,
+            }}
+          >
             <div
               style={{
                 display: "flex",
@@ -926,6 +1039,7 @@ export default function DawApp() {
                 onAddTrack={() => void addTrack("Take")}
                 addBusy={busy || isRecording}
                 selected={selected?.fileId ?? null}
+                onReorder={reorderLanes}
               />
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <Timeline
@@ -952,7 +1066,7 @@ export default function DawApp() {
             {song && (
               <div
                 style={{
-                  width: 250, flex: "0 0 auto", minHeight: 0,
+                  width: SIDE_COL, flex: "0 0 auto", minHeight: 0,
                   display: "flex", flexDirection: "column", gap: 10,
                 }}
               >
@@ -967,7 +1081,12 @@ export default function DawApp() {
                 </div>
                 {/* Below Idea Drop, filling the column the old form left empty. */}
                 <div style={{ flex: 1, minHeight: 0 }}>
-                  <ChordsPanel skin={skin} text={song.lyricsChords} />
+                  <ChordsPanel
+                    skin={skin}
+                    text={song.lyricsChords}
+                    onGrab={grabRow}
+                    onReset={() => setRowHeight(null)}
+                  />
                 </div>
               </div>
             )}
@@ -976,7 +1095,11 @@ export default function DawApp() {
           {/* The mixer takes the whole row now. A track's effects live inside
               it — click a track name to open its device panel (chain + params) —
               so there's no separate rack column floating over the lyrics. */}
-          <div style={{ display: "flex", flex: "0 0 auto", minHeight: 0, overflow: "auto" }}>
+          {/* The mixer stops where the timeline stops: the spacer on the right
+              is the Idea Drop column's width, so the two rows share an edge
+              rather than the mixer running on under the file list. Strips that
+              don't fit the narrower panel scroll sideways inside it. */}
+          <div style={{ display: "flex", flex: "0 0 auto", minHeight: 0, gap: 10 }}>
             <Mixer
               project={session.project}
               lanes={lanes}
@@ -988,6 +1111,7 @@ export default function DawApp() {
               deviceId={deviceId}
               onChooseDevice={chooseDevice}
             />
+            <div style={{ width: SIDE_COL, flex: "0 0 auto" }} />
           </div>
 
           <StatusBar

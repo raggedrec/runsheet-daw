@@ -2,6 +2,46 @@
 
 Written so the next session doesn't rediscover any of this. Read this before touching audio.
 
+## Update — 3 Sep 2026: master FX, Save diagnostics, adaptive layout
+
+Newer than everything below it. Where the two disagree, this wins.
+
+- **FX on the master bus.** The master audio unit (`rootBoxAdapter.audioUnits
+  .adapters().find(a => a.isOutput)`) has an `audioEffectsField` like any track,
+  it just wasn't reachable — the mixer's sidebar only listed lanes. There's now a
+  MASTER entry below the tracks that opens the master's chain, so a limiter can
+  go where it belongs.
+- **Maximizer (the limiter) ships on by default.** Inserted once, the first time
+  a master with an empty chain is seen. The `LIM` button on the master strip
+  removes it or puts it back. Detected by openDAW's static `ClassName`, never
+  `constructor.name` — trap #7.
+- **Save now says why it failed.** It didn't before: the catch was a bare
+  `catch {}` that only flipped the button to "Retry save", so "Save is broken"
+  was undiagnosable from the outside. It reports the real Supabase/engine error
+  in the error banner and the engine log. **The underlying cause is still
+  unidentified** — the next failed save names it. First suspects, given a bounce
+  to the same `idea-drop` bucket succeeds: the bucket's allowed-MIME list
+  rejecting `application/octet-stream`, or storage RLS refusing the UPDATE half
+  of `upsert: true` on a re-save.
+- **Track reordering.** Drag the grip on a track row. openDAW already owned the
+  order — every `AudioUnitBox` has an `index`, and `rootBoxAdapter.audioUnits` is
+  an `IndexedBoxAdapterCollection` with `move(adapter, delta)` — so the reorder
+  is written there (inside `editing.modify`) and `lanes` is reordered to match.
+  The timeline and the mixer both render from `lanes`, so one drag moves both.
+  Collection positions are *not* lane positions: the master unit sits in the same
+  collection, so the delta is computed from `adapters()`, never from lane indices.
+- **Layout.** The lyrics panel has a grip on its bottom edge that resizes the
+  *timeline row* (the element that owns the space) rather than the panel — a
+  panel can't grow past a row that hasn't. The mixer stops where the timeline
+  stops, with a spacer matching the Idea Drop column. Side column is
+  `clamp(180px, 20vw, 250px)`. `main` scrolls vertically instead of clipping
+  what doesn't fit.
+- **Still open, not started:** the EQ (Revamp) crash that blanks the screen when
+  it's added to a track; the metronome/click with its own volume; running on a
+  phone (a session loads then kills the tab). A real small-screen breakpoint
+  layout is also still to do — the changes above stop things being *unreachable*
+  on a small laptop, they don't reflow for one.
+
 ## Works
 
 - Engine boots (WASM, cross-origin isolated), loads a song's stems, plays them.
