@@ -23,7 +23,7 @@ import { SampleStorage } from "@opendaw/studio-core";
 import type { AudioData } from "@opendaw/lib-dsp";
 import type { Peaks } from "@opendaw/lib-fusion";
 import type { Capture } from "@opendaw/studio-core";
-import type { UUID } from "@opendaw/lib-std";
+import { UUID } from "@opendaw/lib-std";
 import { encodeWav } from "../wav";
 
 export interface Take {
@@ -34,6 +34,12 @@ export interface Take {
   peaks: Peaks;
   seconds: number;
   wav: Blob;
+  /**
+   * The sample's id in openDAW's store — the very id the saved graph references.
+   * Linking this to the Idea Drop file it becomes lets a reopen tell "this stem
+   * is a take I already restored from the graph" from "a take to add fresh".
+   */
+  sampleUuid: string;
 }
 
 /**
@@ -89,6 +95,7 @@ export async function collectTakes(capture: Capture, baseName: string): Promise<
       peaks,
       seconds,
       wav: encodeWav(audio),
+      sampleUuid: UUID.toString(uuid as never),
     });
   }
   return takes;

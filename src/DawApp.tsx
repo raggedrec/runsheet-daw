@@ -13,6 +13,9 @@ import {
   loadSongIntoProject,
   prepareSamples,
   lanesFromSavedProject,
+  buildStemLanes,
+  readTakeLinks,
+  rememberTakeLink,
   tempoOf,
   type LoadedLane,
   type LoadProgress,
@@ -282,11 +285,33 @@ export default function DawApp() {
           song?.bpm ? tempoOf(song.bpm) ?? 120 : 120,
           onProgress,
         );
-        const savedLanes = lanesFromSavedProject(reopened.project, prepared);
+        const savedLanes = await lanesFromSavedProject(reopened.project, prepared);
         if (savedLanes.length > 0) {
+          /*
+           * Merge in any stem the saved graph doesn't already carry — a stem
+           * added in Run Sheet since the save, or a take recorded on another
+           * machine (its audio isn't in this browser's store, so the graph
+           * couldn't restore it, but its Idea Drop WAV is a stem we can add).
+           * Only role "stem", so bounced mixes don't pile up as lanes. Deduped
+           * against takes already restored from the graph, via the record→file
+           * link, so a take is never offered twice.
+           */
+          const restoredTakeUuids = new Set(
+            savedLanes.filter((l) => l.fileId.startsWith("session:")).map((l) => l.fileId.slice("session:".length)),
+          );
+          const presentIds = new Set(savedLanes.map((l) => l.fileId));
+          const takeLinks = readTakeLinks();
+          const missing = prepared.filter(
+            (p) =>
+              p.file.role === "stem" &&
+              !presentIds.has(p.file.id) &&
+              !(takeLinks[p.file.id] && restoredTakeUuids.has(takeLinks[p.file.id])),
+          );
+          const mergedLanes = missing.length > 0 ? await buildStemLanes(reopened.project, missing) : [];
+
           await startSessionEngine(reopened.project);
           setSession(reopened);
-          setLanes(savedLanes);
+          setLanes([...savedLanes, ...mergedLanes]);
           setStage({ name: "loaded" });
           return;
         }
@@ -615,7 +640,13 @@ export default function DawApp() {
       // Upload after the lane appears, not before: the take is visible and
       // playable while it uploads, and a failed upload doesn't hide it.
       for (const take of takes) {
-        await uploadToIdeaDrop(song, new File([take.wav], `${take.name}.wav`), "stem");
+        const takeFile = await uploadToIdeaDrop(song, new File([take.wav], `${take.name}.wav`), "stem");
+        // Link the Idea Drop file to the store id its take-region carries, so a
+        // reopen can tell this stem is a take it already restored from the graph
+        // (don't add twice) from one recorded elsewhere (add fresh). And show it
+        // in Idea Drop straight away.
+        rememberTakeLink(takeFile.id, take.sampleUuid);
+        setSong((s) => (s ? { ...s, files: [...s.files, takeFile] } : s));
         setUnsaved((n) => Math.max(0, n - 1));
       }
     } catch (err) {

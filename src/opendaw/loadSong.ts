@@ -177,6 +177,81 @@ export async function prepareSamples(
 }
 
 /**
+ * Creates a Tape track and a region for each prepared sample, returning the
+ * lanes. Shared by the fresh load and the reopen merge, so a stem is built the
+ * same way whether it's the first stem in a new project or a stem added to a
+ * reopened one. Does not touch tempo or the loop — those are the project's, set
+ * once when it's created.
+ */
+export async function buildStemLanes(project: Project, prepared: Prepared[]): Promise<LoadedLane[]> {
+  // The AudioFileBox has to be created inside the transaction, but building its
+  // creator is async — so that's done out here and called in there.
+  const creators = await Promise.all(
+    prepared.map((p) =>
+      AudioFileBoxFactory.createModifier(noTransients, project.boxGraph, p.audio, p.uuid, p.file.name),
+    ),
+  );
+
+  const lanes: LoadedLane[] = [];
+  project.editing.modify(() => {
+    prepared.forEach((p, i) => {
+      /*
+       * Tape is openDAW's audio playback device — the one that plays recorded
+       * regions rather than synthesising. Each stem gets its own unit so it has
+       * its own fader, mute and solo, which is the whole point of opening stems.
+       */
+      const { trackBox, audioUnitBox } = project.api.createInstrument(InstrumentFactories.Tape, {
+        name: laneName(p.file.name),
+      });
+      project.api.createNotStretchedRegion({
+        boxGraph: project.boxGraph,
+        targetTrack: trackBox,
+        audioFileBox: creators[i](),
+        sample: p.sample,
+        position: 0,
+        name: laneName(p.file.name),
+      });
+      lanes.push({
+        name: laneName(p.file.name),
+        fileId: p.file.id,
+        seconds: p.sample.duration,
+        peaks: p.peaks,
+        unit: audioUnitBox,
+      });
+    });
+  });
+  return lanes;
+}
+
+/*
+ * Which Idea Drop file a recorded take became, and the store id its take-region
+ * carries in the saved graph. On a reopen this is how we know an Idea Drop stem
+ * is a take we already restored from the graph (so we don't add it twice) versus
+ * a take from another machine that we should add fresh. Browser-local on
+ * purpose: it only needs to be true where the graph's take audio still exists.
+ */
+const TAKES_KEY = "runsheet-daw-takes";
+
+export function readTakeLinks(): Record<string, string> {
+  try {
+    const raw = window.localStorage.getItem(TAKES_KEY);
+    return raw ? (JSON.parse(raw) as Record<string, string>) : {};
+  } catch {
+    return {};
+  }
+}
+
+export function rememberTakeLink(fileId: string, sampleUuid: string): void {
+  try {
+    const links = readTakeLinks();
+    links[fileId] = sampleUuid;
+    window.localStorage.setItem(TAKES_KEY, JSON.stringify(links));
+  } catch {
+    // No worse than a take being offered twice on this browser after a reopen.
+  }
+}
+
+/**
  * Loads every playable file for a song and returns what landed.
  *
  * `bpm` matters more than it looks: openDAW positions regions in musical time,
@@ -195,22 +270,7 @@ export async function loadSongIntoProject(
   // --- Pass one: everything slow -------------------------------------------
   const prepared = await prepareSamples(sampleService, files, bpm, onProgress);
 
-  // The AudioFileBox has to be created inside the transaction, but building
-  // its creator is async — so that's done out here and called in there.
-  const creators = await Promise.all(
-    prepared.map((p) =>
-      AudioFileBoxFactory.createModifier(
-        noTransients,
-        project.boxGraph,
-        p.audio,
-        p.uuid,
-        p.file.name,
-      ),
-    ),
-  );
-
   // --- Pass two: one transaction -------------------------------------------
-  const lanes: LoadedLane[] = [];
   project.editing.modify(() => {
     project.api.setBpm(bpm);
 
@@ -223,36 +283,9 @@ export async function loadSongIntoProject(
      * here, where the song is set up.
      */
     project.timelineBox.loopArea.enabled.setValue(false);
-
-    prepared.forEach((p, i) => {
-      /*
-       * Tape is openDAW's audio playback device — the one that plays recorded
-       * regions rather than synthesising. Each stem gets its own unit so it
-       * has its own fader, mute and solo, which is the whole point of opening
-       * stems rather than a mix.
-       */
-      const { trackBox, audioUnitBox } = project.api.createInstrument(InstrumentFactories.Tape, {
-        name: laneName(p.file.name),
-      });
-
-      project.api.createNotStretchedRegion({
-        boxGraph: project.boxGraph,
-        targetTrack: trackBox,
-        audioFileBox: creators[i](),
-        sample: p.sample,
-        position: 0,
-        name: laneName(p.file.name),
-      });
-
-      lanes.push({
-        name: laneName(p.file.name),
-        fileId: p.file.id,
-        seconds: p.sample.duration,
-        peaks: p.peaks,
-        unit: audioUnitBox,
-      });
-    });
   });
+
+  const lanes = await buildStemLanes(project, prepared);
 
   // Bounded like the readiness wait: this too resolves off the AnimationFrame
   // pump, so the budget counts only visible time — a background tab waits, a
@@ -304,7 +337,7 @@ export async function loadSongIntoProject(
  * whose stored WAV hashes differently to the take in the graph) is skipped — its
  * audio isn't in this browser, so there's nothing to draw or play for it.
  */
-export function lanesFromSavedProject(project: Project, prepared: Prepared[]): LoadedLane[] {
+export async function lanesFromSavedProject(project: Project, prepared: Prepared[]): Promise<LoadedLane[]> {
   const byUuid = new Map(prepared.map((p) => [UUID.toString(p.uuid), p]));
   const lanes: LoadedLane[] = [];
   for (const unit of project.rootBoxAdapter.audioUnits.adapters()) {
@@ -312,17 +345,42 @@ export function lanesFromSavedProject(project: Project, prepared: Prepared[]): L
     for (const track of unit.tracks.values()) {
       for (const region of track.regions.adapters.values()) {
         if (!region.isAudioRegion()) continue;
-        const match = byUuid.get(UUID.toString(region.file.uuid));
-        if (match === undefined) continue;
-        lanes.push({
-          name: unit.label,
-          fileId: match.file.id,
-          seconds: match.sample.duration,
-          peaks: match.peaks,
-          unit: unit.box,
-        });
-        added = true;
-        break;
+        const uuidBytes = region.file.uuid;
+
+        // A Run Sheet stem, matched to a sample we just re-imported.
+        const match = byUuid.get(UUID.toString(uuidBytes));
+        if (match !== undefined) {
+          lanes.push({
+            name: unit.label,
+            fileId: match.file.id,
+            seconds: match.sample.duration,
+            peaks: match.peaks,
+            unit: unit.box,
+          });
+          added = true;
+          break;
+        }
+
+        /*
+         * Not a stem — a recorded take. openDAW wrote the recording to its store
+         * (IndexedDB, which persists), keyed by the very id the saved graph
+         * points at, so on this browser the audio is still here and the take
+         * comes back with the mix. Cross-browser it won't be (the store is
+         * per-browser and the Idea Drop copy is a WAV that hashes differently),
+         * which is the honest limit of restoring a take.
+         */
+        if (await SampleStorage.get().exists(uuidBytes)) {
+          const [audio, peaks] = await SampleStorage.get().load(uuidBytes);
+          lanes.push({
+            name: unit.label,
+            fileId: `session:${UUID.toString(uuidBytes)}`,
+            seconds: audio.numberOfFrames / audio.sampleRate,
+            peaks,
+            unit: unit.box,
+          });
+          added = true;
+          break;
+        }
       }
       if (added) break;
     }
