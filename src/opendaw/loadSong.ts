@@ -26,6 +26,7 @@ import type { Peaks } from "@opendaw/lib-fusion";
 import type { AudioUnitBox } from "@opendaw/studio-boxes";
 import { signedUrl, type Song, type SongFile } from "../runsheet";
 import { laneName, tempoOf } from "../naming";
+import { fetchWithTimeout, withVisibleTimeout } from "./withTimeout";
 
 export { laneName, tempoOf };
 
@@ -161,7 +162,7 @@ export async function loadSongIntoProject(
     }
 
     const url = await signedUrl(file.storagePath);
-    const response = await fetch(url);
+    const response = await fetchWithTimeout(url, file.name);
     if (!response.ok) {
       throw new Error(`Couldn't fetch ${file.name} (${response.status})`);
     }
@@ -244,7 +245,14 @@ export async function loadSongIntoProject(
     });
   });
 
-  await project.engine.queryLoadingComplete();
+  // Bounded like the readiness wait: this too resolves off the AnimationFrame
+  // pump, so the budget counts only visible time — a background tab waits, a
+  // real stall after the regions are placed says so instead of hanging.
+  await withVisibleTimeout(
+    project.engine.queryLoadingComplete(),
+    30000,
+    "The engine didn't finish loading the stems. If the tab was in the background, bring it to the front and try again.",
+  );
   return lanes;
 }
 

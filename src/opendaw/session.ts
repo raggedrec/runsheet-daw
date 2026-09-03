@@ -32,6 +32,7 @@ import {
 } from "@opendaw/studio-core";
 import { BpmDetector } from "@opendaw/studio-adapters";
 import type { BootResult } from "../opendawBoot";
+import { withVisibleTimeout } from "./withTimeout";
 
 export interface DawSession {
   project: Project;
@@ -125,8 +126,15 @@ function buildProjectEnv(audioContext: AudioContext): {
 export async function startSessionEngine(project: Project): Promise<void> {
   project.startAudioWorklet();
   // engine — the EngineFacade with play/stop/record — is only usable once the
-  // worklet has reported ready.
-  await project.engine.isReady();
+  // worklet has reported ready. Bounded by *visible* time: the readiness signal
+  // rides the AnimationFrame pump, which is paused while the tab is hidden, so a
+  // backgrounded load waits rather than fails; a real stall (tab in front,
+  // engine still silent) trips the ceiling and says so.
+  await withVisibleTimeout(
+    project.engine.isReady(),
+    30000,
+    "The audio engine didn't start. If the tab was in the background while loading, bring it to the front and open the song again.",
+  );
 }
 
 export async function createSession(boot: BootResult): Promise<DawSession> {

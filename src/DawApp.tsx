@@ -6,7 +6,7 @@
  * just for following a link. The button also gives the browser the user
  * gesture it needs before an AudioContext will run.
  */
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { boot, startAudio, BootError, type BootResult } from "./opendawBoot";
 import { createSession, type DawSession } from "./opendaw/session";
 import {
@@ -234,9 +234,19 @@ export default function DawApp() {
 
   const files = useMemo(() => (song ? playableFiles(song) : []), [song]);
 
+  /*
+   * Guards `open` against a second call while the first is still running. A
+   * fast double-click on "Open the session" used to fire it twice, and two
+   * createSession calls put two engine worklets on the one shared AudioContext
+   * — which deadlocks the loader (the reopen path was shelved for the same
+   * reason). One gesture means one load.
+   */
+  const opening = useRef(false);
+
   /** Start the audio engine and pull the song's stems in. One gesture. */
   const open = useCallback(async () => {
-    if (!bootResult || !song) return;
+    if (!bootResult || !song || opening.current) return;
+    opening.current = true;
     setStage({ name: "loading", progress: null });
     try {
       const started = await startAudio(bootResult);
@@ -271,6 +281,9 @@ export default function DawApp() {
       setLanes(result);
       setStage({ name: "loaded" });
     } catch (err) {
+      // Let a fresh attempt through after a failure — the guard is only against
+      // concurrent double-fires, not a permanent latch.
+      opening.current = false;
       setStage({
         name: "blocked",
         message: err instanceof Error ? err.message : "The song didn't load.",
