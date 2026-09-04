@@ -1160,6 +1160,7 @@ export default function DawApp() {
             <div style={{ display: "flex", flex: "0 0 auto", minHeight: 0 }}>
               <Mixer
                 project={session.project}
+                sampleService={session.sampleService}
                 lanes={lanes}
                 skin={skin}
                 accent={accent.solid}

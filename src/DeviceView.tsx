@@ -14,11 +14,12 @@
  * always 0..1 and each parameter's own curve does the work. A linear slider
  * over a decibel range spends most of its travel somewhere useless.
  */
-import { useCallback, useRef, useState } from "react";
-import type { Project } from "@opendaw/studio-core";
+import { useCallback, useEffect, useRef, useState } from "react";
+import type { Project, SampleService } from "@opendaw/studio-core";
 import { UUID } from "@opendaw/lib-std";
-import { NeuralAmpModelBox, type NeuralAmpDeviceBox } from "@opendaw/studio-boxes";
+import { NeuralAmpModelBox, type NeuralAmpDeviceBox, type ConvolverDeviceBox } from "@opendaw/studio-boxes";
 import { font, radius, size, space, type Skin } from "./theme";
+import { prepareAudioFile } from "./opendaw/loadSong";
 
 /** The shape we rely on, kept narrow so a change in openDAW fails loudly. */
 interface Param {
@@ -137,9 +138,11 @@ export interface DeviceViewProps {
   accent: string;
   revision: number;
   onChanged: () => void;
+  /** Needed to import an IR into a convolver. */
+  sampleService: SampleService;
 }
 
-export function DeviceView({ project, devices, trackName, skin, accent, revision, onChanged }: DeviceViewProps) {
+export function DeviceView({ project, devices, trackName, skin, accent, revision, onChanged, sampleService }: DeviceViewProps) {
   void revision;
 
   const write = useCallback(
@@ -224,6 +227,19 @@ export function DeviceView({ project, devices, trackName, skin, accent, revision
                 />
               )}
 
+              {/* The convolver's IR — a cab (in front of, after the amp) or a
+                  reverb (Lexicon), the same device either way. */}
+              {isConvolver(device) && (
+                <IrLoader
+                  project={project}
+                  sampleService={sampleService}
+                  box={device.box as ConvolverDeviceBox}
+                  skin={skin}
+                  accent={accent}
+                  onWrite={write}
+                />
+              )}
+
               {rows.length === 0 && !isNeuralAmp(device) && (
                 <p style={{ font: `${size.sm}px ${font.body}`, color: skin.fgSubtle, margin: 0 }}>
                   This device exposes no parameters.
@@ -298,6 +314,12 @@ function isNeuralAmp(device: DeviceAdapterish): boolean {
   return ctor?.ClassName === "NeuralAmpDeviceBox";
 }
 
+/** Whether a device is the Convolver (an IR loader — cab or reverb). */
+function isConvolver(device: DeviceAdapterish): boolean {
+  const ctor = (device.box as { constructor?: { ClassName?: string } })?.constructor;
+  return ctor?.ClassName === "ConvolverDeviceBox";
+}
+
 /**
  * Loads a .nam model into a Neural Amp device.
  *
@@ -311,6 +333,82 @@ function isNeuralAmp(device: DeviceAdapterish): boolean {
  * The read-and-hash is async, so it happens BEFORE the transaction; only the box
  * writes go inside editing.modify() (via onWrite).
  */
+/** A bundled preset (an amp capture or an IR) the user can pick without files. */
+interface Preset {
+  category: string;
+  name: string;
+  file: string;
+}
+
+/*
+ * Preset manifests, fetched once each and shared. Generated into public/nam by
+ * scripts/sync-nam.mjs from the NAM/ folder: index.json (amps), ir.json (cab &
+ * reverb IRs). Absent (empty) is fine — the picker just doesn't show.
+ */
+const presetIndexCache = new Map<string, Promise<Preset[]>>();
+function loadPresetIndex(path: string): Promise<Preset[]> {
+  let promise = presetIndexCache.get(path);
+  if (!promise) {
+    promise = fetch(`${import.meta.env.BASE_URL}${path}`)
+      .then((r) => (r.ok ? (r.json() as Promise<Preset[]>) : []))
+      .catch(() => []);
+    presetIndexCache.set(path, promise);
+  }
+  return promise;
+}
+
+/** A grouped preset dropdown; calls onPick with the chosen preset. */
+function PresetSelect({
+  path, placeholder, disabled, skin, onPick,
+}: {
+  path: string;
+  placeholder: string;
+  disabled: boolean;
+  skin: Skin;
+  onPick: (preset: Preset) => void;
+}) {
+  const [presets, setPresets] = useState<Preset[]>([]);
+  useEffect(() => {
+    let live = true;
+    loadPresetIndex(path).then((p) => { if (live) setPresets(p); });
+    return () => { live = false; };
+  }, [path]);
+
+  if (presets.length === 0) return null;
+
+  const groups = presets.reduce<Record<string, Preset[]>>((acc, p) => {
+    (acc[p.category] ??= []).push(p);
+    return acc;
+  }, {});
+
+  return (
+    <select
+      value=""
+      disabled={disabled}
+      onChange={(e) => {
+        const preset = presets.find((p) => p.file === e.target.value);
+        if (preset) onPick(preset);
+        e.target.value = "";
+      }}
+      style={{
+        width: "100%", boxSizing: "border-box", marginBottom: space[2],
+        font: `${size.sm}px ${font.body}`, color: skin.fg,
+        background: skin.surface, border: `1px solid ${skin.border}`,
+        borderRadius: radius.sm, padding: "5px 6px",
+      }}
+    >
+      <option value="">{placeholder}</option>
+      {Object.entries(groups).map(([category, items]) => (
+        <optgroup key={category} label={category}>
+          {items.map((p) => (
+            <option key={p.file} value={p.file}>{p.name}</option>
+          ))}
+        </optgroup>
+      ))}
+    </select>
+  );
+}
+
 function NamModelLoader({
   project, box, skin, accent, onWrite,
 }: {
@@ -327,12 +425,19 @@ function NamModelLoader({
   const current = box.model.targetVertex.unwrapOrNull() as NeuralAmpModelBox | null;
   const modelName = current ? current.label.getValue() : null;
 
-  const load = useCallback(
-    async (file: File) => {
+  /*
+   * One owner for loading, whatever the source. `getText` fetches the JSON — off
+   * disk for a user's own .nam, off public/nam for a preset — and everything
+   * after (validate, hash, create/link) is identical. The content hash means a
+   * preset chosen twice, or the same amp loaded on several tracks, shares one
+   * model box rather than duplicating a few hundred KB of weights each time.
+   */
+  const applyModel = useCallback(
+    async (getText: () => Promise<string>, label: string) => {
       setError(null);
       setBusy(true);
       try {
-        const text = await file.text();
+        const text = await getText();
         let looksLikeNam = false;
         try {
           const parsed = JSON.parse(text) as Record<string, unknown>;
@@ -346,8 +451,6 @@ function NamModelLoader({
           throw new Error("That doesn't look like a .nam model (expected NAM JSON).");
         }
 
-        // Stable id from the content: the same capture loaded twice shares one
-        // model box rather than duplicating a few megabytes of weights.
         const uuid = await UUID.sha256(new TextEncoder().encode(text).buffer);
         let modelBox: NeuralAmpModelBox | null = null;
         for (const existing of project.boxGraph.boxes()) {
@@ -360,7 +463,7 @@ function NamModelLoader({
         onWrite(() => {
           if (modelBox === null) {
             modelBox = NeuralAmpModelBox.create(project.boxGraph, uuid);
-            modelBox.label.setValue(file.name.replace(/\.nam$/i, ""));
+            modelBox.label.setValue(label);
             modelBox.model.setValue(text);
           }
           box.model.refer(modelBox);
@@ -376,6 +479,22 @@ function NamModelLoader({
 
   return (
     <div style={{ marginBottom: space[3] }}>
+      {/* Preset amps first — the path for anyone who doesn't have or want their
+          own .nam. The file picker below stays for those who do. */}
+      <PresetSelect
+        path="nam/index.json"
+        placeholder="Choose an amp…"
+        disabled={busy}
+        skin={skin}
+        onPick={(preset) =>
+          void applyModel(async () => {
+            const res = await fetch(`${import.meta.env.BASE_URL}nam/${preset.file}`);
+            if (!res.ok) throw new Error("Couldn't fetch that amp preset.");
+            return res.text();
+          }, preset.name)
+        }
+      />
+
       <input
         ref={fileRef}
         type="file"
@@ -383,7 +502,7 @@ function NamModelLoader({
         hidden
         onChange={(e) => {
           const file = e.target.files?.[0];
-          if (file) void load(file);
+          if (file) void applyModel(() => file.text(), file.name.replace(/\.nam$/i, ""));
           e.target.value = ""; // let the same file be picked again after an error
         }}
       />
@@ -410,6 +529,111 @@ function NamModelLoader({
           }}
         >
           {modelName ?? "No model loaded"}
+        </span>
+      </div>
+      {error && (
+        <p style={{ font: `${size.xs}px ${font.body}`, color: "#C0453B", margin: `${space[2]}px 0 0` }}>
+          {error}
+        </p>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Loads an impulse response into a Convolver — a cab (after the amp) or a reverb
+ * (Lexicon), same device either way. Presets come from the bundled IR pack; the
+ * file picker takes any .wav. The IR is imported as an audio sample and the
+ * convolver's `file` pointed at it, the same way a stem's region references its
+ * audio.
+ */
+function IrLoader({
+  project, sampleService, box, skin, accent, onWrite,
+}: {
+  project: Project;
+  sampleService: SampleService;
+  box: ConvolverDeviceBox;
+  skin: Skin;
+  accent: string;
+  onWrite: (fn: () => void) => void;
+}) {
+  const fileRef = useRef<HTMLInputElement | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [pickedName, setPickedName] = useState<string | null>(null);
+
+  const hasIr = box.file.targetVertex.nonEmpty();
+
+  const applyIr = useCallback(
+    async (getBuffer: () => Promise<ArrayBuffer>, label: string) => {
+      setError(null);
+      setBusy(true);
+      try {
+        const buffer = await getBuffer();
+        const createFileBox = await prepareAudioFile(sampleService, project, label, buffer);
+        onWrite(() => {
+          box.file.refer(createFileBox());
+        });
+        setPickedName(label);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Couldn't load that IR.");
+      } finally {
+        setBusy(false);
+      }
+    },
+    [project, sampleService, box, onWrite],
+  );
+
+  return (
+    <div style={{ marginBottom: space[3] }}>
+      <PresetSelect
+        path="nam/ir.json"
+        placeholder="Choose an IR (cab / reverb)…"
+        disabled={busy}
+        skin={skin}
+        onPick={(preset) =>
+          void applyIr(async () => {
+            const res = await fetch(`${import.meta.env.BASE_URL}nam/${preset.file}`);
+            if (!res.ok) throw new Error("Couldn't fetch that IR.");
+            return res.arrayBuffer();
+          }, preset.name)
+        }
+      />
+
+      <input
+        ref={fileRef}
+        type="file"
+        accept=".wav,audio/wav"
+        hidden
+        onChange={(e) => {
+          const file = e.target.files?.[0];
+          if (file) void applyIr(() => file.arrayBuffer(), file.name.replace(/\.wav$/i, ""));
+          e.target.value = "";
+        }}
+      />
+      <div style={{ display: "flex", alignItems: "center", gap: space[2] }}>
+        <button
+          onClick={() => fileRef.current?.click()}
+          disabled={busy}
+          style={{
+            flex: "0 0 auto", height: 28, paddingInline: 12,
+            font: `600 ${size.xs}px ${font.body}`, letterSpacing: ".04em",
+            color: accent, background: "transparent",
+            border: `1px dashed ${accent}`, borderRadius: radius.sm,
+            cursor: busy ? "default" : "pointer",
+          }}
+        >
+          {busy ? "Loading…" : hasIr ? "Change IR" : "Load .wav IR"}
+        </button>
+        <span
+          title={pickedName ?? undefined}
+          style={{
+            font: `${size.sm}px ${font.body}`,
+            color: pickedName || hasIr ? skin.fg : skin.fgSubtle,
+            overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+          }}
+        >
+          {pickedName ?? (hasIr ? "IR loaded" : "No IR")}
         </span>
       </div>
       {error && (
