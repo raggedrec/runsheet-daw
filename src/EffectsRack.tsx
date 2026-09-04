@@ -37,6 +37,12 @@ const OFFERED: ReadonlyArray<{ key: string; label: string; factory: unknown; not
   { key: "Maximizer", label: "Maximizer", factory: EffectFactories.Maximizer, note: "Loudness, with a ceiling" },
 ];
 
+/** A box a device points at (a NAM model, a convolver IR), enough of it to prune. */
+interface Satellite {
+  delete: () => void;
+  pointerHub: { incoming: () => ReadonlyArray<unknown> };
+}
+
 export interface EffectsRackProps {
   project: Project;
   /** The track whose chain is shown, or null when none is selected. */
@@ -81,8 +87,28 @@ export function EffectsRack({ project, unit, trackName, skin, accent, revision, 
   );
 
   const remove = useCallback(
-    (box: { delete: () => void }) => {
-      project.editing.modify(() => box.delete());
+    (box: unknown) => {
+      project.editing.modify(() => {
+        /*
+         * Some devices reference a satellite box: the Neural Amp points at a
+         * NeuralAmpModelBox (`.model`), the Convolver at an AudioFileBox
+         * (`.file`). Deleting the device alone leaves that satellite an orphan —
+         * a Target with no incoming edge — which fails graph validation and, on
+         * the running engine, diverges its mirror ("engine mirror diverged").
+         * So delete the satellite too, once the device no longer points at it,
+         * unless something else still does.
+         */
+        const b = box as {
+          delete: () => void;
+          model?: { targetVertex: { unwrapOrNull: () => Satellite | null } };
+          file?: { targetVertex: { unwrapOrNull: () => Satellite | null } };
+        };
+        const satellite = b.model?.targetVertex.unwrapOrNull() ?? b.file?.targetVertex.unwrapOrNull() ?? null;
+        b.delete();
+        if (satellite && satellite.pointerHub.incoming().length === 0) {
+          satellite.delete();
+        }
+      });
       onChanged();
     },
     [project, onChanged],
@@ -152,7 +178,7 @@ export function EffectsRack({ project, unit, trackName, skin, accent, revision, 
               {labelFor(effect)}
             </span>
             <button
-              onClick={() => remove(effect.box as unknown as { delete: () => void })}
+              onClick={() => remove(effect.box)}
               title="Remove"
               style={{
                 width: 24, height: 24, cursor: "pointer",

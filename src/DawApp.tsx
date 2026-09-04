@@ -13,6 +13,7 @@ import {
   loadSongIntoProject,
   prepareSamples,
   lanesFromSavedProject,
+  pruneOrphanedModels,
   buildStemLanes,
   readTakeLinks,
   rememberTakeLink,
@@ -279,6 +280,9 @@ export default function DawApp() {
       const savedBuffer = await loadSession(song).catch(() => null);
       if (savedBuffer) {
         const reopened = await loadSessionProject(bootResult, savedBuffer);
+        // Heal a session saved before amp-removal cleaned up its model box, so an
+        // orphan from back then doesn't crash the engine on open.
+        pruneOrphanedModels(reopened.project);
         const prepared = await prepareSamples(
           reopened.sampleService,
           files,
