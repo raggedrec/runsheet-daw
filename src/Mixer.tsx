@@ -14,7 +14,7 @@
  * writes outside a transaction.
  */
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { Project, Capture } from "@opendaw/studio-core";
+import type { Project, Capture, SampleService } from "@opendaw/studio-core";
 import { EffectFactories, CaptureAudio } from "@opendaw/studio-core";
 import { AudioUnitBoxAdapter } from "@opendaw/studio-adapters";
 import type { AudioUnitBox } from "@opendaw/studio-boxes";
@@ -29,6 +29,8 @@ import { PanelBoundary } from "./PanelBoundary";
 
 export interface MixerProps {
   project: Project;
+  /** Imports IRs for a convolver device. */
+  sampleService: SampleService;
   lanes: ReadonlyArray<LoadedLane>;
   skin: Skin;
   accent: string;
@@ -60,7 +62,7 @@ function isMaximizer(effect: unknown): boolean {
   return (ctor?.ClassName ?? "").startsWith("Maximizer");
 }
 
-export function Mixer({ project, lanes, skin, accent, revision, onChanged, inputDevices, deviceId, onChooseDevice, colorFor, armedCapture, armedName }: MixerProps) {
+export function Mixer({ project, sampleService, lanes, skin, accent, revision, onChanged, inputDevices, deviceId, onChooseDevice, colorFor, armedCapture, armedName }: MixerProps) {
   /*
    * One panel, two views. Clicking a track name in the list swaps the strips
    * for that track's devices; clicking it again goes back. The mixer and the
@@ -230,6 +232,7 @@ export function Mixer({ project, lanes, skin, accent, revision, onChanged, input
             <PanelBoundary skin={skin} label="device">
               <DeviceView
                 project={project}
+                sampleService={sampleService}
                 devices={devices}
                 trackName={openName ?? "this track"}
                 skin={skin}

@@ -15,6 +15,9 @@ dist/
 # Copied from node_modules by scripts/sync-wasm.mjs — never committed
 public/opendaw-wasm/
 
+# Generated from NAM/ by scripts/sync-nam.mjs — never committed (NAM/ is the source)
+public/nam/
+
 # tsc -b build artifact
 *.tsbuildinfo
 scripts/unit/bundle.mjs

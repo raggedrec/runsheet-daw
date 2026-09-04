@@ -23,7 +23,7 @@ import { InstrumentFactories, type Sample } from "@opendaw/studio-adapters";
 import { UUID } from "@opendaw/lib-std";
 import type { AudioData, TransientProtocol } from "@opendaw/lib-dsp";
 import type { Peaks } from "@opendaw/lib-fusion";
-import type { AudioUnitBox } from "@opendaw/studio-boxes";
+import type { AudioUnitBox, AudioFileBox } from "@opendaw/studio-boxes";
 import { signedUrl, type Song, type SongFile } from "../runsheet";
 import { laneName, tempoOf } from "../naming";
 import { fetchWithTimeout, withVisibleTimeout } from "./withTimeout";
@@ -221,6 +221,26 @@ export async function buildStemLanes(project: Project, prepared: Prepared[]): Pr
     });
   });
   return lanes;
+}
+
+/**
+ * Imports an audio file (an impulse response) and returns a creator for its
+ * AudioFileBox, to be called inside a transaction.
+ *
+ * Same two-step shape as a stem: decode and store out here (async), create the
+ * box in there (sync). A convolver points its `file` at the returned box. The
+ * sample id is the content hash, so the same IR chosen twice shares one file.
+ */
+export async function prepareAudioFile(
+  sampleService: SampleService,
+  project: Project,
+  name: string,
+  arrayBuffer: ArrayBuffer,
+): Promise<() => AudioFileBox> {
+  const sample = await sampleService.importFile({ name, bpm: 120, arrayBuffer, origin: "import" });
+  const uuid = UUID.parse(sample.uuid);
+  const [audio] = await SampleStorage.get().load(uuid);
+  return AudioFileBoxFactory.createModifier(noTransients, project.boxGraph, audio, uuid, name);
 }
 
 /*
