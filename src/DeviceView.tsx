@@ -17,7 +17,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Project, SampleService } from "@opendaw/studio-core";
 import { UUID } from "@opendaw/lib-std";
-import { NeuralAmpModelBox, type NeuralAmpDeviceBox, type ConvolverDeviceBox } from "@opendaw/studio-boxes";
+import { NeuralAmpModelBox, AudioFileBox, type NeuralAmpDeviceBox, type ConvolverDeviceBox } from "@opendaw/studio-boxes";
 import { font, radius, size, space, type Skin } from "./theme";
 import { prepareAudioFile } from "./opendaw/loadSong";
 
@@ -461,12 +461,21 @@ function NamModelLoader({
         }
 
         onWrite(() => {
+          // The model this device is leaving. Once we point it elsewhere, an old
+          // per-model box that nothing else references becomes an orphan — a
+          // Target with no incoming edge, which fails openDAW's graph validation
+          // ("Target … requires an edge") on the next commit or save. So delete
+          // it, unless another device still points at the same capture.
+          const previous = box.model.targetVertex.unwrapOrNull();
           if (modelBox === null) {
             modelBox = NeuralAmpModelBox.create(project.boxGraph, uuid);
             modelBox.label.setValue(label);
             modelBox.model.setValue(text);
           }
           box.model.refer(modelBox);
+          if (previous && previous !== modelBox && previous.pointerHub.incoming().length === 0) {
+            (previous as unknown as { delete: () => void }).delete();
+          }
         });
       } catch (err) {
         setError(err instanceof Error ? err.message : "Couldn't load that model.");
@@ -570,9 +579,25 @@ function IrLoader({
       setBusy(true);
       try {
         const buffer = await getBuffer();
-        const createFileBox = await prepareAudioFile(sampleService, project, label, buffer);
+        const { uuid, create } = await prepareAudioFile(sampleService, project, label, buffer);
         onWrite(() => {
-          box.file.refer(createFileBox());
+          const previous = box.file.targetVertex.unwrapOrNull();
+          // Reuse an AudioFileBox for this IR if one already exists — creating a
+          // second with the same id would collide — else make it.
+          let fileBox: AudioFileBox | null = null;
+          for (const existing of project.boxGraph.boxes()) {
+            if (existing instanceof AudioFileBox && UUID.equals(existing.address.uuid, uuid)) {
+              fileBox = existing;
+              break;
+            }
+          }
+          fileBox ??= create();
+          box.file.refer(fileBox);
+          // Drop the IR we just left if nothing else points at it, so it doesn't
+          // linger as an orphaned Target and fail graph validation.
+          if (previous && previous !== fileBox && previous.pointerHub.incoming().length === 0) {
+            (previous as unknown as { delete: () => void }).delete();
+          }
         });
         setPickedName(label);
       } catch (err) {

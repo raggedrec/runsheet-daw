@@ -23,6 +23,7 @@ import { InstrumentFactories, type Sample } from "@opendaw/studio-adapters";
 import { UUID } from "@opendaw/lib-std";
 import type { AudioData, TransientProtocol } from "@opendaw/lib-dsp";
 import type { Peaks } from "@opendaw/lib-fusion";
+import { NeuralAmpModelBox } from "@opendaw/studio-boxes";
 import type { AudioUnitBox, AudioFileBox } from "@opendaw/studio-boxes";
 import { signedUrl, type Song, type SongFile } from "../runsheet";
 import { laneName, tempoOf } from "../naming";
@@ -236,11 +237,12 @@ export async function prepareAudioFile(
   project: Project,
   name: string,
   arrayBuffer: ArrayBuffer,
-): Promise<() => AudioFileBox> {
+): Promise<{ uuid: UUID.Bytes; create: () => AudioFileBox }> {
   const sample = await sampleService.importFile({ name, bpm: 120, arrayBuffer, origin: "import" });
   const uuid = UUID.parse(sample.uuid);
   const [audio] = await SampleStorage.get().load(uuid);
-  return AudioFileBoxFactory.createModifier(noTransients, project.boxGraph, audio, uuid, name);
+  const create = await AudioFileBoxFactory.createModifier(noTransients, project.boxGraph, audio, uuid, name);
+  return { uuid, create };
 }
 
 /*
@@ -344,6 +346,28 @@ export async function loadSongIntoProject(
  * engine log panel before trusting it; the checkpoint's warnings about guessing
  * at openDAW's graph apply in full.
  */
+/**
+ * Deletes orphaned NeuralAmpModelBoxes from a reopened graph.
+ *
+ * A session saved before amp-removal cleaned up after itself can carry a model
+ * box that nothing points at — an invalid Target that fails validation and
+ * diverges the engine's mirror the moment it starts. Pruning them on load heals
+ * such a session so it opens rather than blocking. Deletes to a collected list,
+ * not while iterating, and only opens a transaction if there's something to fix.
+ */
+export function pruneOrphanedModels(project: Project): void {
+  const orphans: NeuralAmpModelBox[] = [];
+  for (const box of project.boxGraph.boxes()) {
+    if (box instanceof NeuralAmpModelBox && box.pointerHub.incoming().length === 0) {
+      orphans.push(box);
+    }
+  }
+  if (orphans.length === 0) return;
+  project.editing.modify(() => {
+    for (const box of orphans) box.delete();
+  });
+}
+
 /**
  * Rebuilds the lane list from a reopened session, using freshly-imported peaks.
  *
