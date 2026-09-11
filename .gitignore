@@ -15,8 +15,14 @@ dist/
 # Copied from node_modules by scripts/sync-wasm.mjs — never committed
 public/opendaw-wasm/
 
-# Generated from NAM/ by scripts/sync-nam.mjs — never committed (NAM/ is the source)
+# Generated from NAM/ by scripts/sync-nam.mjs — never committed
 public/nam/
+
+# Amp captures / IR packs are third-party audio with their own licences — kept
+# local as the source for a build, never committed or redistributed in this
+# public repo. Drop in only captures you're licensed to redistribute if you ever
+# want them served.
+NAM/
 
 # tsc -b build artifact
 *.tsbuildinfo

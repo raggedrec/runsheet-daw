@@ -221,7 +221,7 @@ sources before suspecting the library.
 
 ## Outstanding elsewhere
 
-- `SUPABASE_SERVICE_ROLE_KEY` still un-rotated in RCR-TRACKER history. Bypasses RLS.
-  Highest-value item on any list.
-- Run Sheet's session-cookie migration didn't fire on deploy; artists were signed out once.
-  Cause unknown, `scripts/session-test/unit.mjs` passes regardless.
+Operational and security items that touch the private RCR-TRACKER backend (key
+rotation, session-cookie behaviour, RLS) are tracked privately, not here — this
+file is published with the app under the AGPL, and a public repo is the wrong
+place to catalogue how to attack the backend that guards artists' data.
