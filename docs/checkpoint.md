@@ -2,6 +2,37 @@
 
 Written so the next session doesn't rediscover any of this. Read this before touching audio.
 
+## Update — 24 Sep 2026: the shared session cookie is chunked
+
+Newer than everything below it. Where the two disagree, this wins.
+
+- **"Song won't load" was never an engine bug — it was auth.** The DAW opened
+  fine but every song failed with `permission denied for function
+  is_scene_member`. That error is what RLS returns to the **anon** role: the DAW
+  was querying `tracks` signed-out, so the policy's membership check wasn't
+  callable. The song never got past the first query.
+- **Why signed-out, when Run Sheet had a live session on the same domain?**
+  Both apps share one cookie (`runsheet-auth`, `Domain=.raggedcompanyrecordings
+  .com`). But a Supabase session over ~3500 chars doesn't fit in one cookie, so
+  Run Sheet **splits it** across `runsheet-auth.0`, `runsheet-auth.1`, … and
+  **deletes the base cookie**. The DAW's storage adapter read only the single
+  base cookie, so for any chunked session it read `null` → the client treated it
+  as no session → anon. A small (password-only) session fit in one cookie and
+  worked, which is why this hid for a while.
+- **The fix is symmetry, not cleverness.** `src/supabase.ts` now mirrors Run
+  Sheet's `cookieSessionStorage` byte for byte: read chunks first (falling back
+  to the single cookie), write chunks when the encoded value exceeds
+  `MAX_COOKIE_VALUE = 3500`, strip provider tokens, clear the other
+  representation on every write. If you touch either side, change both — the
+  two apps must agree on the split point or they corrupt each other's session.
+- **The one non-obvious trap in the read:** join the raw chunk strings *before*
+  `decodeURIComponent`. The split lands at a fixed encoded length, so it usually
+  falls mid-escape (`%XX`); decoding each chunk alone throws `URIError`.
+  Concatenate raw, then decode once.
+- **Two apps, one cookie format — that's the source of truth now.** Run Sheet's
+  `src/lib/sessionStorage.ts` is the reference implementation; the DAW is the
+  mirror. Neither holds a second copy of the session.
+
 ## Update — 3 Sep 2026: master FX, Save diagnostics, adaptive layout
 
 Newer than everything below it. Where the two disagree, this wins.
