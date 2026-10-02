@@ -157,6 +157,21 @@ export default function DawApp() {
   );
 
   /*
+   * How many effects sit on a lane's chain, read from the graph — the track row
+   * shows it as an FX badge. mixRevision is the trigger to re-read after the
+   * chain changes; the count itself always comes from openDAW, never a copy.
+   */
+  const fxCountFor = useCallback(
+    (lane: LoadedLane) =>
+      session?.project.rootBoxAdapter.audioUnits
+        .adapters()
+        .find((a) => a.box === lane.unit)
+        ?.audioEffects.mapOr((c) => c.adapters().length, () => 0) ?? 0,
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- mixRevision is the trigger
+    [session, mixRevision],
+  );
+
+  /*
    * The log opens itself the first time something goes wrong, and stays shut
    * otherwise. A diagnostic panel permanently expanded is noise; one that
    * appears exactly when there is something to read is a colleague.
@@ -1134,6 +1149,7 @@ export default function DawApp() {
                 onReorder={reorderLanes}
                 colorFor={colorFor}
                 onSetColor={setLaneColor}
+                fxCountFor={fxCountFor}
               />
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <Timeline

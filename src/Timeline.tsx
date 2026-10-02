@@ -168,6 +168,26 @@ export function Timeline({
           // its track's role colour. Muted lanes stay grey either way — muted is
           // "off", and a colour would argue otherwise.
           const waveColour = colorWaveforms ? colorFor(lane) : skin.wave;
+
+          /*
+           * The clip body: the audio sits in a rounded, role-tinted block with a
+           * brighter top edge, so a stem reads as a clip on the lane rather than a
+           * bare waveform (the DAW-standard look). Drawn only across x0..x1 — the
+           * span the audio actually occupies — so a short stem stays a short clip.
+           * Muted lanes get a neutral body; a colour would argue the part is live.
+           */
+          const role = colorFor(lane);
+          const bodyW = Math.max(1, x1 - x0);
+          const bodyH = laneHeight - pad * 2;
+          ctx.beginPath();
+          ctx.roundRect(x0, top + pad, bodyW, bodyH, 4);
+          ctx.fillStyle = on
+            ? withAlpha(role, skin.name === "dark" ? 0.2 : 0.13)
+            : withAlpha(skin.fg, 0.05);
+          ctx.fill();
+          ctx.fillStyle = on ? withAlpha(role, 0.85) : skin.waveMuted;
+          ctx.fillRect(x0, top + pad, bodyW, 2);
+
           for (let ch = 0; ch < channels; ch++) {
             const y0 = top + pad + ch * chHeight;
             const y1 = y0 + chHeight;

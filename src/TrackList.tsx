@@ -43,10 +43,12 @@ export interface TrackListProps {
   colorFor: (lane: LoadedLane) => string;
   /** Pick a colour for a track. Every panel reads it back through colorFor. */
   onSetColor: (lane: LoadedLane, hex: string) => void;
+  /** How many effects sit on a lane's chain, for the FX badge. */
+  fxCountFor: (lane: LoadedLane) => number;
 }
 
 export function TrackList({
-  lanes, skin, laneHeight, muted, soloed, armed, onMute, onSolo, onArm, onSelect, onRename, onRemove, onAddTrack, addBusy, selected, onReorder, colorFor, onSetColor,
+  lanes, skin, laneHeight, muted, soloed, armed, onMute, onSolo, onArm, onSelect, onRename, onRemove, onAddTrack, addBusy, selected, onReorder, colorFor, onSetColor, fxCountFor,
 }: TrackListProps) {
   /*
    * Drag state, held here rather than lifted: nothing outside this column needs
@@ -209,6 +211,22 @@ export function TrackList({
                 skin={skin}
                 onClick={() => onArm(lane)}
               />
+              {/* FX chain depth, read from the graph — a glance at which tracks
+                  carry inserts. Hidden at zero so an empty row stays quiet. */}
+              {fxCountFor(lane) > 0 && (
+                <span
+                  title={`${fxCountFor(lane)} effect${fxCountFor(lane) === 1 ? "" : "s"} on ${lane.name}`}
+                  style={{
+                    display: "inline-flex", alignItems: "center", gap: 2, height: 22,
+                    padding: "0 5px", boxSizing: "border-box",
+                    font: `700 ${size.xs}px ${font.body}`, letterSpacing: ".04em",
+                    color: skin.fgMuted, border: `1px solid ${skin.border}`,
+                    borderRadius: radius.sm, fontVariantNumeric: "tabular-nums",
+                  }}
+                >
+                  FX {fxCountFor(lane)}
+                </span>
+              )}
               <LaneColor
                 name={lane.name}
                 color={colorFor(lane)}

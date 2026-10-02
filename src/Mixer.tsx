@@ -257,6 +257,7 @@ export function Mixer({ project, sampleService, lanes, skin, accent, revision, o
                 accent={accent}
                 revision={revision}
                 onChanged={onChanged}
+                onOpenDevices={() => setOpenTrack(lane.fileId)}
               />
             ))}
 
@@ -274,6 +275,7 @@ export function Mixer({ project, sampleService, lanes, skin, accent, revision, o
                 meterLevel={masterLevel}
                 limiterOn={limiter !== null}
                 onToggleLimiter={toggleLimiter}
+                onOpenDevices={() => setOpenTrack(MASTER_KEY)}
               />
             )}
           </div>
@@ -284,7 +286,7 @@ export function Mixer({ project, sampleService, lanes, skin, accent, revision, o
 }
 
 function Strip({
-  project, unit, name, colour, skin, accent, revision, onChanged, isMaster = false, meterLevel, limiterOn, onToggleLimiter,
+  project, unit, name, colour, skin, accent, revision, onChanged, isMaster = false, meterLevel, limiterOn, onToggleLimiter, onOpenDevices,
 }: {
   project: Project;
   unit: AudioUnitBox;
@@ -300,12 +302,21 @@ function Strip({
   /** Master only: whether the Maximizer is on the bus, and the toggle for it. */
   limiterOn?: boolean;
   onToggleLimiter?: () => void;
+  /** Open this strip's device chain — the FX chip is the shortcut in. */
+  onOpenDevices?: () => void;
 }) {
   void revision; // the trigger to re-read; values always come from the graph
   const volume = unit.volume.getValue();
   const panning = unit.panning.getValue();
   const muted = unit.mute.getValue();
   const soloed = unit.solo.getValue();
+
+  // How many effects sit on this strip, read from the graph (not a second copy).
+  // The FX chip shows it and opens the chain — a desk shows its inserts.
+  const fxCount = project.rootBoxAdapter.audioUnits
+    .adapters()
+    .find((a) => a.box === unit)
+    ?.audioEffects.mapOr((c) => c.adapters().length, () => 0) ?? 0;
 
   const write = useCallback(
     (fn: () => void) => {
@@ -334,22 +345,51 @@ function Strip({
       style={{
         width: 104, flex: "0 0 auto",
         background: skin.surface,
-        borderTop: `3px solid ${colour}`,
-        padding: `${space[3]}px ${space[2]}px`,
+        padding: `0 ${space[2]}px ${space[3]}px`,
         display: "flex", flexDirection: "column", alignItems: "center", gap: space[2],
       }}
     >
-      <span
+      {/* Role-coloured name plate (a desk's channel header), full-bleed to the
+          strip edges. readableOn picks ink that survives on the plate colour. */}
+      <div
         style={{
-          width: "100%", textAlign: "center",
-          font: `600 ${size.sm}px ${font.body}`, letterSpacing: ".05em",
-          color: muted ? skin.fgSubtle : skin.fg,
-          overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+          margin: `0 -${space[2]}px ${space[1]}px`, width: `calc(100% + ${space[2] * 2}px)`,
+          background: colour, padding: "4px 6px", boxSizing: "border-box",
+          opacity: muted ? 0.5 : 1,
         }}
         title={name}
       >
-        {name.toUpperCase()}
-      </span>
+        <span
+          style={{
+            display: "block", textAlign: "center",
+            font: `700 ${size.sm}px ${font.body}`, letterSpacing: ".05em",
+            color: readableOn(colour),
+            overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+          }}
+        >
+          {name.toUpperCase()}
+        </span>
+      </div>
+
+      {/* FX inserts — count, and the way into the chain. A desk shows its
+          inserts; this is the honest version (reads the graph, opens the rack). */}
+      <button
+        onClick={onOpenDevices}
+        disabled={!onOpenDevices}
+        title={fxCount > 0 ? `${fxCount} effect${fxCount === 1 ? "" : "s"} — open the chain` : "No effects — open the chain"}
+        style={{
+          width: "100%", height: 20, padding: "0 6px",
+          display: "flex", alignItems: "center", justifyContent: "space-between",
+          font: `700 ${size.xs}px ${font.body}`, letterSpacing: ".04em",
+          color: fxCount > 0 ? skin.fg : skin.fgSubtle,
+          background: "transparent",
+          border: `1px solid ${fxCount > 0 ? skin.borderStrong : skin.border}`,
+          borderRadius: radius.sm, cursor: onOpenDevices ? "pointer" : "default",
+        }}
+      >
+        <span>FX</span>
+        <span style={{ fontVariantNumeric: "tabular-nums" }}>{fxCount}</span>
+      </button>
 
       {/* Master has no solo — soloing the output is meaningless, and a control
           that does nothing is worse than one that isn't there. */}
@@ -378,15 +418,20 @@ function Strip({
         same y in every strip. Master has nothing to pan and leaves the slot
         empty — but the same height, or the faders stop lining up down the row.
       */}
-      <div style={{ height: 32, width: "100%", display: "flex", alignItems: "center", justifyContent: "center" }}>
+      <div style={{ height: 44, width: "100%", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 2 }}>
         {!isMaster && (
-          <PanKnob
-            value={panning}
-            onChange={(v) => write(() => unit.panning.setValue(v))}
-            onReset={() => write(() => unit.panning.setValue(0))}
-            skin={skin}
-            accent={accent}
-          />
+          <>
+            <PanKnob
+              value={panning}
+              onChange={(v) => write(() => unit.panning.setValue(v))}
+              onReset={() => write(() => unit.panning.setValue(0))}
+              skin={skin}
+              accent={accent}
+            />
+            <span style={{ font: `500 ${size.xs}px ${font.mono}`, color: skin.fgSubtle, fontVariantNumeric: "tabular-nums" }}>
+              {panLabel(panning)}
+            </span>
+          </>
         )}
       </div>
 

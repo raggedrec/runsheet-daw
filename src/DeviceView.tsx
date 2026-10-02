@@ -17,9 +17,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Project, SampleService } from "@opendaw/studio-core";
 import { UUID } from "@opendaw/lib-std";
-import { NeuralAmpModelBox, AudioFileBox, type NeuralAmpDeviceBox, type ConvolverDeviceBox } from "@opendaw/studio-boxes";
+import { NeuralAmpModelBox, AudioFileBox, RevampDeviceBox, type NeuralAmpDeviceBox, type ConvolverDeviceBox } from "@opendaw/studio-boxes";
 import { font, radius, size, space, type Skin } from "./theme";
 import { prepareAudioFile } from "./opendaw/loadSong";
+import { eqResponseDb, type EqBand } from "./eqResponse";
 
 /** The shape we rely on, kept narrow so a change in openDAW fails loudly. */
 interface Param {
@@ -240,6 +241,14 @@ export function DeviceView({ project, devices, trackName, skin, accent, revision
                 />
               )}
 
+              {/* The EQ draws its real response above the band knobs — the curve
+                  is computed from the same band values the knobs below set. */}
+              {isRevampEq(device) && (
+                <div style={{ marginBottom: space[3] }}>
+                  <EqCurve box={device.box as RevampDeviceBox} skin={skin} accent={accent} revision={revision} />
+                </div>
+              )}
+
               {rows.length === 0 && !isNeuralAmp(device) && (
                 <p style={{ font: `${size.sm}px ${font.body}`, color: skin.fgSubtle, margin: 0 }}>
                   This device exposes no parameters.
@@ -318,6 +327,120 @@ function isNeuralAmp(device: DeviceAdapterish): boolean {
 function isConvolver(device: DeviceAdapterish): boolean {
   const ctor = (device.box as { constructor?: { ClassName?: string } })?.constructor;
   return ctor?.ClassName === "ConvolverDeviceBox";
+}
+
+/** Whether a device is the Revamp EQ, by openDAW's static ClassName. */
+function isRevampEq(device: DeviceAdapterish): boolean {
+  const ctor = (device.box as { constructor?: { ClassName?: string } })?.constructor;
+  return ctor?.ClassName === "RevampDeviceBox";
+}
+
+/**
+ * The EQ's seven bands as plain numbers, read straight from the box fields.
+ *
+ * Reading the box rather than the adapter's namedParameter because the response
+ * maths wants the real Hz/dB/Q, not the 0..1 the knobs use. Shelves have no Q
+ * and passes no gain — the response code ignores the unused field per band type.
+ */
+function readEqBands(box: RevampDeviceBox): EqBand[] {
+  const bell = (b: RevampDeviceBox["lowBell"]): EqBand => ({
+    type: "peaking", enabled: b.enabled.getValue(),
+    freq: b.frequency.getValue(), gain: b.gain.getValue(), q: b.q.getValue(),
+  });
+  return [
+    { type: "highpass", enabled: box.highPass.enabled.getValue(), freq: box.highPass.frequency.getValue(), gain: 0, q: box.highPass.q.getValue() },
+    { type: "lowshelf", enabled: box.lowShelf.enabled.getValue(), freq: box.lowShelf.frequency.getValue(), gain: box.lowShelf.gain.getValue(), q: 0 },
+    bell(box.lowBell), bell(box.midBell), bell(box.highBell),
+    { type: "highshelf", enabled: box.highShelf.enabled.getValue(), freq: box.highShelf.frequency.getValue(), gain: box.highShelf.gain.getValue(), q: 0 },
+    { type: "lowpass", enabled: box.lowPass.enabled.getValue(), freq: box.lowPass.frequency.getValue(), gain: 0, q: box.lowPass.q.getValue() },
+  ];
+}
+
+const EQ_W = 300;
+const EQ_H = 84;
+const EQ_PAD = 8;
+/** The ± dB the plot spans vertically. Wide enough for a heavy cut, tight
+ *  enough that a 1 dB nudge is visible. */
+const EQ_DB = 18;
+
+/**
+ * The EQ response plot: a real transfer-function curve over a log-frequency
+ * axis (20 Hz–20 kHz), redrawn whenever a band value changes. The curve reads
+ * the live box each paint, so it IS the EQ — no second copy of the settings.
+ */
+function EqCurve({
+  box, skin, accent, revision,
+}: {
+  box: RevampDeviceBox;
+  skin: Skin;
+  accent: string;
+  revision: number;
+}) {
+  const ref = useRef<HTMLCanvasElement | null>(null);
+  useEffect(() => {
+    void revision; // the trigger to repaint after a knob moves
+    const canvas = ref.current;
+    if (!canvas) return;
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    canvas.width = Math.round(EQ_W * dpr);
+    canvas.height = Math.round(EQ_H * dpr);
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+    ctx.fillStyle = skin.surfaceSunken;
+    ctx.fillRect(0, 0, EQ_W, EQ_H);
+
+    const innerH = EQ_H - EQ_PAD * 2;
+    const mid = EQ_PAD + innerH / 2;
+    const yFor = (db: number) => mid - (Math.max(-EQ_DB, Math.min(EQ_DB, db)) / EQ_DB) * (innerH / 2);
+    const xFor = (f: number) => (Math.log10(f / 20) / 3) * EQ_W; // 3 decades: 20..20k
+
+    // Decade grid and the 0 dB line, under the curve.
+    ctx.font = `9px ${font.mono}`;
+    ctx.textBaseline = "top";
+    for (const f of [100, 1000, 10000]) {
+      const x = Math.round(xFor(f)) + 0.5;
+      ctx.strokeStyle = skin.gridBeat;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(x, 0);
+      ctx.lineTo(x, EQ_H);
+      ctx.stroke();
+      ctx.fillStyle = skin.fgSubtle;
+      ctx.fillText(f >= 1000 ? `${f / 1000}k` : String(f), x + 3, 3);
+    }
+    ctx.strokeStyle = skin.laneLine;
+    ctx.beginPath();
+    ctx.moveTo(0, mid + 0.5);
+    ctx.lineTo(EQ_W, mid + 0.5);
+    ctx.stroke();
+
+    // The response curve — one sample per horizontal pixel.
+    const bands = readEqBands(box);
+    ctx.beginPath();
+    for (let x = 0; x <= EQ_W; x++) {
+      const f = 20 * Math.pow(1000, x / EQ_W);
+      const y = yFor(eqResponseDb(bands, f));
+      if (x === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    }
+    ctx.strokeStyle = accent;
+    ctx.lineWidth = 2;
+    ctx.lineJoin = "round";
+    ctx.stroke();
+  }, [box, revision, skin, accent]);
+
+  return (
+    <canvas
+      ref={ref}
+      title="EQ response"
+      style={{
+        width: EQ_W, height: EQ_H, display: "block", maxWidth: "100%",
+        borderRadius: radius.sm, border: `1px solid ${skin.border}`,
+      }}
+    />
+  );
 }
 
 /**

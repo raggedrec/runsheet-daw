@@ -14,6 +14,7 @@ import { formatTime, formatBars } from "./bundle.mjs";
 import { laneName, tempoOf, formatKey } from "./bundle.mjs";
 import { sanitizeLook, laneColorFor, LANE_HEIGHT, DEFAULT_LOOK } from "./bundle.mjs";
 import { encodeWav } from "./bundle.mjs";
+import { bandMagnitudeDb, eqResponseDb } from "./bundle.mjs";
 
 let pass = 0, fail = 0;
 const ok = (name, cond, extra = "") => {
@@ -157,6 +158,27 @@ console.log("  WAV encoding");
   });
   eq("an empty take is a valid header, not a crash", blob.size, 44);
 }
+
+console.log("  eq response (RBJ biquad magnitude)");
+const near = (name, actual, expected, tol) =>
+  ok(name, Math.abs(actual - expected) <= tol, `got ${actual.toFixed(2)}, wanted ${expected}±${tol}`);
+// A peaking band reads its own gain at its centre frequency.
+near("peak hits its gain at centre", bandMagnitudeDb({ type: "peaking", enabled: true, freq: 1000, gain: 6, q: 1 }, 1000), 6, 0.3);
+near("a cut too", bandMagnitudeDb({ type: "peaking", enabled: true, freq: 1000, gain: -9, q: 2 }, 1000), -9, 0.3);
+// Far from the centre a bell does nothing.
+near("peak is flat an octave-and-more away", bandMagnitudeDb({ type: "peaking", enabled: true, freq: 1000, gain: 6, q: 2 }, 60), 0, 0.5);
+// A shelf approaches its full gain in its own band.
+near("low shelf lifts the lows", bandMagnitudeDb({ type: "lowshelf", enabled: true, freq: 200, gain: 6, q: 0 }, 30), 6, 0.6);
+near("low shelf leaves the highs", bandMagnitudeDb({ type: "lowshelf", enabled: true, freq: 200, gain: 6, q: 0 }, 12000), 0, 0.3);
+// A high-pass kills what's below its corner and passes what's above.
+ok("high-pass attenuates below the corner", bandMagnitudeDb({ type: "highpass", enabled: true, freq: 1000, gain: 0, q: 0.707 }, 60) < -20);
+near("high-pass passes well above", bandMagnitudeDb({ type: "highpass", enabled: true, freq: 100, gain: 0, q: 0.707 }, 8000), 0, 0.3);
+// Disabled is flat, and the cascade sums its bands.
+eq("a disabled band is flat", bandMagnitudeDb({ type: "peaking", enabled: false, freq: 1000, gain: 12, q: 1 }, 1000), 0);
+near("the cascade sums", eqResponseDb([
+  { type: "peaking", enabled: true, freq: 1000, gain: 6, q: 1 },
+  { type: "peaking", enabled: true, freq: 1000, gain: 3, q: 1 },
+], 1000), 9, 0.4);
 
 console.log(`\n  ${pass} passed, ${fail} failed\n`);
 process.exit(fail ? 1 : 0);
