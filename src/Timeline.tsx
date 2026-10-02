@@ -170,23 +170,31 @@ export function Timeline({
           const waveColour = colorWaveforms ? colorFor(lane) : skin.wave;
 
           /*
-           * The clip body: the audio sits in a rounded, role-tinted block with a
-           * brighter top edge, so a stem reads as a clip on the lane rather than a
-           * bare waveform (the DAW-standard look). Drawn only across x0..x1 — the
-           * span the audio actually occupies — so a short stem stays a short clip.
-           * Muted lanes get a neutral body; a colour would argue the part is live.
+           * The clip body: a defined, role-coloured block — fill, a 1px border and
+           * a header strip — so every stem reads as a clip, even the grey and blue
+           * roles that all but vanish at a faint tint on the dark skin. Drawn only
+           * across x0..x1, the span the audio occupies, so a short stem stays a
+           * short clip. Muted lanes stay neutral; a colour would argue "live".
            */
           const role = colorFor(lane);
           const bodyW = Math.max(1, x1 - x0);
-          const bodyH = laneHeight - pad * 2;
+          // Half-pixel inset so a 1px stroke lands on the pixel, not across two.
           ctx.beginPath();
-          ctx.roundRect(x0, top + pad, bodyW, bodyH, 4);
+          ctx.roundRect(x0 + 0.5, top + pad + 0.5, bodyW - 1, laneHeight - pad * 2 - 1, 4);
           ctx.fillStyle = on
-            ? withAlpha(role, skin.name === "dark" ? 0.2 : 0.13)
+            ? withAlpha(role, skin.name === "dark" ? 0.3 : 0.18)
             : withAlpha(skin.fg, 0.05);
           ctx.fill();
-          ctx.fillStyle = on ? withAlpha(role, 0.85) : skin.waveMuted;
-          ctx.fillRect(x0, top + pad, bodyW, 2);
+          // Header strip, clipped to the rounded top so the corners stay clean.
+          ctx.save();
+          ctx.clip();
+          ctx.fillStyle = on ? withAlpha(role, 0.95) : skin.waveMuted;
+          ctx.fillRect(x0, top + pad, bodyW, 4);
+          ctx.restore();
+          // The border carries the block edge where the fill alone is too weak.
+          ctx.strokeStyle = withAlpha(role, on ? 0.75 : 0.25);
+          ctx.lineWidth = 1;
+          ctx.stroke();
 
           for (let ch = 0; ch < channels; ch++) {
             const y0 = top + pad + ch * chHeight;
