@@ -27,3 +27,7 @@ NAM/
 # tsc -b build artifact
 *.tsbuildinfo
 scripts/unit/bundle.mjs
+
+# Secrets. The Bunny key lives outside the repo (../BUNNY_ACCESS_KEY.txt); this
+# is insurance against a copy ever landing inside it.
+BUNNY_ACCESS_KEY.txt
