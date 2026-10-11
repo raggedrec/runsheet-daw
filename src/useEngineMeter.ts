@@ -10,21 +10,30 @@
  * The receiver fires whenever the engine has new peaks (driven by the same
  * AnimationFrame pump the rest of the UI depends on). Each frame we take the
  * loudest channel, then reset — so if the engine stops sending, the meter falls
- * to silence instead of freezing at the last value. Fast attack, slow release,
- * the way a meter should move.
+ * to silence instead of freezing at the last value. Ballistics, hold and the
+ * clip latch live in `meter.ts`, timed by the frame's real timestamp.
  *
  * RUNTIME-UNVERIFIED: the PEAKS float layout isn't documented; taking the max
  * magnitude across the array is the safe reading. Verify it moves with playback.
  */
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { Project } from "@opendaw/studio-core";
 import { EngineAddresses } from "@opendaw/studio-adapters";
+import { SILENT_METER, clearClip, feedMeter, type MeterState } from "./meter";
 
-export function useMasterMeter(project: Project | null): number {
-  const [level, setLevel] = useState(0);
+export interface MasterMeter {
+  reading: MeterState;
+  clearClip: () => void;
+}
+
+export function useMasterMeter(project: Project | null): MasterMeter {
+  const [reading, setReading] = useState<MeterState>(SILENT_METER);
+  const state = useRef<MeterState>(SILENT_METER);
   const incoming = useRef(0);
 
   useEffect(() => {
+    state.current = SILENT_METER;
+    setReading(SILENT_METER);
     if (!project) return;
 
     const sub = project.liveStreamReceiver.subscribeFloats(EngineAddresses.PEAKS, (floats) => {
@@ -37,10 +46,14 @@ export function useMasterMeter(project: Project | null): number {
     });
 
     let frame = 0;
-    const tick = () => {
+    let last: number | null = null;
+    const tick = (now: number) => {
       const peak = incoming.current;
       incoming.current = 0; // reset each frame — no fresh peak means silence
-      setLevel((prev) => (peak > prev ? peak : prev * 0.8));
+      const dt = last === null ? 0 : (now - last) / 1000;
+      last = now;
+      state.current = feedMeter(state.current, peak, dt);
+      setReading(state.current);
       frame = requestAnimationFrame(tick);
     };
     frame = requestAnimationFrame(tick);
@@ -51,5 +64,10 @@ export function useMasterMeter(project: Project | null): number {
     };
   }, [project]);
 
-  return level;
+  const clear = useCallback(() => {
+    state.current = clearClip(state.current);
+    setReading(state.current);
+  }, []);
+
+  return { reading, clearClip: clear };
 }
