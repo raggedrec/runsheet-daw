@@ -11,3 +11,6 @@ export { laneName, tempoOf, formatKey } from "../../src/naming";
 export { sanitizeLook, laneColorFor, LANE_HEIGHT, DEFAULT_LOOK } from "../../src/theme";
 export { encodeWav } from "../../src/wav";
 export { bandMagnitudeDb, eqResponseDb } from "../../src/eqResponse";
+export {
+  feedMeter, clearClip, meterFill, linearToDb, SILENT_METER, METER_FLOOR_DB, RELEASE_DB_PER_SEC, HOLD_SECS, CLIP_LINEAR,
+} from "../../src/meter";

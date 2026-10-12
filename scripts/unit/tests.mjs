@@ -15,6 +15,9 @@ import { laneName, tempoOf, formatKey } from "./bundle.mjs";
 import { sanitizeLook, laneColorFor, LANE_HEIGHT, DEFAULT_LOOK } from "./bundle.mjs";
 import { encodeWav } from "./bundle.mjs";
 import { bandMagnitudeDb, eqResponseDb } from "./bundle.mjs";
+import {
+  feedMeter, clearClip, meterFill, linearToDb, SILENT_METER, METER_FLOOR_DB, RELEASE_DB_PER_SEC, HOLD_SECS, CLIP_LINEAR,
+} from "./bundle.mjs";
 
 let pass = 0, fail = 0;
 const ok = (name, cond, extra = "") => {
@@ -179,6 +182,60 @@ near("the cascade sums", eqResponseDb([
   { type: "peaking", enabled: true, freq: 1000, gain: 6, q: 1 },
   { type: "peaking", enabled: true, freq: 1000, gain: 3, q: 1 },
 ], 1000), 9, 0.4);
+
+console.log("  meter ballistics");
+{
+  const close = (name, actual, expected) =>
+    ok(name, Math.abs(actual - expected) < 1e-6, `got ${actual}, wanted ${expected}`);
+  // Attack is instant: one frame of -6 dBFS reads -6 straight away.
+  const hit = feedMeter(SILENT_METER, 0.5, 1 / 60);
+  close("instant attack", hit.levelDb, 20 * Math.log10(0.5));
+  close("peak marker jumps with it", hit.holdDb, hit.levelDb);
+  // The whole point of measuring in seconds: one second of silence falls the
+  // same distance whether it arrived as 60 frames or 120.
+  let at60 = hit, at120 = hit;
+  for (let i = 0; i < 60; i++) at60 = feedMeter(at60, 0, 1 / 60);
+  for (let i = 0; i < 120; i++) at120 = feedMeter(at120, 0, 1 / 120);
+  close("release is the same at 60 and 120 Hz", at60.levelDb, at120.levelDb);
+  close("release is RELEASE_DB_PER_SEC", at60.levelDb, hit.levelDb - RELEASE_DB_PER_SEC);
+  // The held peak stays put for HOLD_SECS, then falls.
+  let held = hit;
+  for (let i = 0; i < 60 * (HOLD_SECS - 0.5); i++) held = feedMeter(held, 0, 1 / 60);
+  close("hold stays put inside the hold time", held.holdDb, hit.holdDb);
+  for (let i = 0; i < 60 * 1.5; i++) held = feedMeter(held, 0, 1 / 60);
+  ok("hold falls after the hold time", held.holdDb < hit.holdDb);
+  ok("the marker never sits below the bar", held.holdDb >= held.levelDb);
+  // It bottoms out at the floor rather than falling forever.
+  let floor = hit;
+  for (let i = 0; i < 600; i++) floor = feedMeter(floor, 0, 1 / 60);
+  eq("falls to the floor and stops", floor.levelDb, METER_FLOOR_DB);
+  // A clock that went backwards (or a first frame) can't move the meter.
+  close("negative dt is no time", feedMeter(hit, 0, -1).levelDb, hit.levelDb);
+  close("NaN dt is no time", feedMeter(hit, 0, NaN).levelDb, hit.levelDb);
+  eq("NaN sample reads as silence", feedMeter(SILENT_METER, NaN, 0.1).levelDb, METER_FLOOR_DB);
+}
+
+console.log("  clip latch");
+{
+  eq("starts clear", SILENT_METER.clipped, false);
+  eq("a loud but legal sample doesn't clip", feedMeter(SILENT_METER, 0.99, 0.01).clipped, false);
+  eq("the top 16-bit code clips", feedMeter(SILENT_METER, CLIP_LINEAR, 0.01).clipped, true);
+  eq("negative full scale clips too", feedMeter(SILENT_METER, -1, 0.01).clipped, true);
+  // The reason it exists: it stays lit through any amount of quiet after.
+  let s = feedMeter(SILENT_METER, 1.2, 0.01);
+  for (let i = 0; i < 6000; i++) s = feedMeter(s, 0, 1 / 60);
+  eq("stays lit through 100 s of silence", s.clipped, true);
+  eq("until cleared", clearClip(s).clipped, false);
+  eq("clearing leaves the level alone", clearClip(s).levelDb, s.levelDb);
+}
+
+console.log("  meter scale");
+eq("0 dBFS fills the bar", meterFill(0), 1);
+eq("-60 is empty", meterFill(-60), 0);
+eq("-30 is halfway", meterFill(-30), 0.5);
+eq("over 0 clamps", meterFill(6), 1);
+eq("the floor is empty", meterFill(METER_FLOOR_DB), 0);
+eq("silence is the floor", linearToDb(0), METER_FLOOR_DB);
 
 console.log(`\n  ${pass} passed, ${fail} failed\n`);
 process.exit(fail ? 1 : 0);

@@ -21,7 +21,8 @@ import type { AudioUnitBox } from "@opendaw/studio-boxes";
 import type { LoadedLane } from "./opendaw/loadSong";
 import { probeChannelCount, type InputDevice } from "./opendaw/recording";
 import { useInputMeter } from "./useInputMeter";
-import { useMasterMeter } from "./useEngineMeter";
+import { useMasterMeter, type MasterMeter } from "./useEngineMeter";
+import { meterFill, type MeterState } from "./meter";
 import { control, font, radius, readableOn, size, space, type Skin } from "./theme";
 import { DeviceView } from "./DeviceView";
 import { EffectsRack } from "./EffectsRack";
@@ -70,7 +71,7 @@ export function Mixer({ project, sampleService, lanes, skin, accent, revision, o
    * this track sound" — so they share the space rather than competing for it.
    */
   const [openTrack, setOpenTrack] = useState<string | null>(null);
-  const masterLevel = useMasterMeter(project);
+  const masterMeter = useMasterMeter(project);
 
   const master = project.rootBoxAdapter.audioUnits.adapters().find((a) => a.isOutput);
 
@@ -272,7 +273,7 @@ export function Mixer({ project, sampleService, lanes, skin, accent, revision, o
                 revision={revision}
                 onChanged={onChanged}
                 isMaster
-                meterLevel={masterLevel}
+                meter={masterMeter}
                 limiterOn={limiter !== null}
                 onToggleLimiter={toggleLimiter}
                 onOpenDevices={() => setOpenTrack(MASTER_KEY)}
@@ -286,7 +287,7 @@ export function Mixer({ project, sampleService, lanes, skin, accent, revision, o
 }
 
 function Strip({
-  project, unit, name, colour, skin, accent, revision, onChanged, isMaster = false, meterLevel, limiterOn, onToggleLimiter, onOpenDevices,
+  project, unit, name, colour, skin, accent, revision, onChanged, isMaster = false, meter, limiterOn, onToggleLimiter, onOpenDevices,
 }: {
   project: Project;
   unit: AudioUnitBox;
@@ -297,8 +298,8 @@ function Strip({
   revision: number;
   onChanged: () => void;
   isMaster?: boolean;
-  /** Master output peak, 0..1, when this is the master strip. */
-  meterLevel?: number;
+  /** Master output meter, when this is the master strip. */
+  meter?: MasterMeter;
   /** Master only: whether the Maximizer is on the bus, and the toggle for it. */
   limiterOn?: boolean;
   onToggleLimiter?: () => void;
@@ -444,7 +445,7 @@ function Strip({
           skin={skin}
           accent={isMaster ? skin.fgMuted : accent}
         />
-        {isMaster && meterLevel !== undefined && <MasterMeterVertical skin={skin} level={meterLevel} />}
+        {isMaster && meter && <MasterMeterVertical skin={skin} reading={meter.reading} onClearClip={meter.clearClip} />}
       </div>
 
       <span
@@ -499,24 +500,37 @@ function Fader({
   skin: Skin;
   accent: string;
 }) {
-  const railRef = useRef<HTMLDivElement | null>(null);
   const travel = FADER_H - CAP_H;
   const capTop = (1 - value01) * travel;
 
-  const setFromClientY = useCallback(
-    (clientY: number) => {
-      const r = railRef.current?.getBoundingClientRect();
-      if (!r) return;
-      onChange01(1 - Math.max(0, Math.min(1, (clientY - r.top - CAP_H / 2) / travel)));
-    },
-    [onChange01, travel],
-  );
-
+  /*
+   * Relative drag, never jump-to-pointer. The fader used to snap the cap to
+   * wherever the pointer went down, so grabbing it a few pixels off-centre
+   * changed the level before the hand had moved — the commonest way a balance
+   * gets nudged by accident. Now a press does nothing; only movement does.
+   *
+   * Cmd (Mac) or Ctrl (elsewhere) held during the drag moves it at a tenth of
+   * the speed, for the last half-dB. It's per-move, so pressing or releasing
+   * the key mid-drag changes the rate without the cap jumping.
+   *
+   * Behaviour from SoundCraft's fader (crates/ui-egui/src/widgets.rs, MIT OR
+   * Apache-2.0); the curve stays openDAW's VolumeMapper.
+   */
   const onDown = useCallback(
     (e: React.PointerEvent) => {
       e.preventDefault();
-      setFromClientY(e.clientY);
-      const move = (ev: PointerEvent) => setFromClientY(ev.clientY);
+      if (e.altKey) {
+        onReset();
+        return;
+      }
+      let lastY = e.clientY;
+      let v = value01;
+      const move = (ev: PointerEvent) => {
+        const scale = ev.metaKey || ev.ctrlKey ? 0.1 : 1;
+        v = Math.max(0, Math.min(1, v - ((ev.clientY - lastY) / travel) * scale));
+        lastY = ev.clientY;
+        onChange01(v);
+      };
       const up = () => {
         window.removeEventListener("pointermove", move);
         window.removeEventListener("pointerup", up);
@@ -524,7 +538,7 @@ function Fader({
       window.addEventListener("pointermove", move);
       window.addEventListener("pointerup", up);
     },
-    [setFromClientY],
+    [value01, onChange01, onReset, travel],
   );
 
   const marks = [6, 0, -6, -12, -24, -48]
@@ -534,10 +548,9 @@ function Fader({
   return (
     <div style={{ display: "flex", gap: 5, height: FADER_H }}>
       <div
-        ref={railRef}
         onPointerDown={onDown}
         onDoubleClick={onReset}
-        title="Volume — double-click for unity"
+        title="Volume — drag; ⌘/Ctrl-drag for fine; double-click or ⌥/Alt-click for unity"
         style={{ position: "relative", width: 30, height: FADER_H, cursor: "ns-resize", touchAction: "none" }}
       >
         {/* rail, then the accent fill from the cap down */}
@@ -728,7 +741,7 @@ function RecordingInput({
       )}
 
       <div style={{ marginTop: 6 }}>
-        <InputMeterBar skin={skin} level={meter.level} sawSignal={meter.sawSignal} error={meter.error} />
+        <InputMeterBar skin={skin} reading={meter.reading} onClearClip={meter.clearClip} sawSignal={meter.sawSignal} error={meter.error} />
       </div>
 
       {/* Per-track input controls, on the armed capture. Monitoring "through the
@@ -878,45 +891,103 @@ function DbControl({
   );
 }
 
-/** The master output peak, vertical, beside the fader — fills from the bottom. */
-function MasterMeterVertical({ skin, level }: { skin: Skin; level: number }) {
-  const db = level > 0 ? 20 * Math.log10(level) : -Infinity;
-  const filled = Number.isFinite(db) ? Math.max(0, Math.min(1, (db + 60) / 60)) : 0;
-  const hot = db > -3;
+/**
+ * The clip light: lit from the first clipped sample until it's clicked. A
+ * button, because clearing it is an act — "I've heard it, I've dealt with it".
+ */
+function ClipLight({
+  clipped, onClear, colour, skin, style,
+}: {
+  clipped: boolean;
+  onClear: () => void;
+  colour: string;
+  skin: Skin;
+  style: React.CSSProperties;
+}) {
   return (
-    <span
-      title="Master output"
+    <button
+      type="button"
+      onClick={onClear}
+      disabled={!clipped}
+      title={clipped ? "Clipped — click to clear" : "Clip light — lights on any clipped sample and stays lit"}
+      aria-label={clipped ? "Clipped, click to clear" : "No clipping"}
       style={{
-        position: "relative", width: 8, height: FADER_H, flex: "0 0 auto",
-        background: skin.slot, borderRadius: 999, overflow: "hidden",
+        padding: 0, border: "none", flex: "0 0 auto",
+        background: clipped ? colour : skin.slot,
+        cursor: clipped ? "pointer" : "default",
+        ...style,
       }}
-    >
-      <span
-        style={{
-          position: "absolute", left: 0, right: 0, bottom: 0,
-          height: `${filled * 100}%`,
-          background: hot ? control.arm : control.mute,
-        }}
+    />
+  );
+}
+
+/** The master output peak, vertical, beside the fader — fills from the bottom. */
+function MasterMeterVertical({
+  skin, reading, onClearClip,
+}: {
+  skin: Skin;
+  reading: MeterState;
+  onClearClip: () => void;
+}) {
+  const filled = meterFill(reading.levelDb);
+  const held = meterFill(reading.holdDb);
+  const hot = reading.levelDb > -3;
+  const CLIP_H = 6;
+  return (
+    <span style={{ display: "flex", flexDirection: "column", gap: 2, width: 8, height: FADER_H, flex: "0 0 auto" }}>
+      <ClipLight
+        clipped={reading.clipped} onClear={onClearClip} colour={control.arm} skin={skin}
+        style={{ width: 8, height: CLIP_H, borderRadius: 2 }}
       />
+      <span
+        title="Master output"
+        style={{
+          position: "relative", width: 8, flex: 1,
+          background: skin.slot, borderRadius: 999, overflow: "hidden",
+        }}
+      >
+        <span
+          style={{
+            position: "absolute", left: 0, right: 0, bottom: 0,
+            height: `${filled * 100}%`,
+            background: hot ? control.arm : control.mute,
+          }}
+        />
+        {held > 0 && (
+          <span
+            style={{
+              position: "absolute", left: 0, right: 0, height: 2,
+              bottom: `calc(${held * 100}% - 1px)`,
+              background: reading.holdDb > -3 ? control.arm : skin.fgMuted,
+            }}
+          />
+        )}
+      </span>
     </span>
   );
 }
 
-/** A slim peak bar for the chosen input — dB mapped, red near clipping. */
+/**
+ * A slim peak bar for the chosen input — dB mapped, red near clipping. The
+ * number is the held peak, not the live level: when you're setting a gain knob
+ * the loudest thing that just happened is the figure you need, and it stays
+ * still long enough to read.
+ */
 function InputMeterBar({
-  skin, level, sawSignal, error,
+  skin, reading, onClearClip, sawSignal, error,
 }: {
   skin: Skin;
-  level: number;
+  reading: MeterState;
+  onClearClip: () => void;
   sawSignal: boolean;
   error: string | null;
 }) {
   if (error) {
     return <span style={{ font: `500 ${size.xs}px ${font.body}`, color: "#C0453B" }}>{error}</span>;
   }
-  const db = level > 0 ? 20 * Math.log10(level) : -Infinity;
-  const filled = Number.isFinite(db) ? Math.max(0, Math.min(1, (db + 60) / 60)) : 0;
-  const hot = db > -3;
+  const filled = meterFill(reading.levelDb);
+  const held = meterFill(reading.holdDb);
+  const hot = reading.levelDb > -3;
   return (
     <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
       <span
@@ -932,15 +1003,29 @@ function InputMeterBar({
             background: hot ? "#C0453B" : "#3B9E5A",
           }}
         />
+        {held > 0 && (
+          <span
+            style={{
+              position: "absolute", top: 0, bottom: 0, width: 2,
+              left: `calc(${held * 100}% - 1px)`,
+              background: reading.holdDb > -3 ? "#C0453B" : skin.fgMuted,
+            }}
+          />
+        )}
       </span>
       <span
+        title="Held peak, dBFS"
         style={{
           font: `500 ${size.xs}px ${font.mono}`, color: skin.fgSubtle,
           width: 26, textAlign: "right", fontVariantNumeric: "tabular-nums",
         }}
       >
-        {Number.isFinite(db) && sawSignal ? Math.round(db) : "--"}
+        {sawSignal && held > 0 ? Math.round(reading.holdDb) : "--"}
       </span>
+      <ClipLight
+        clipped={reading.clipped} onClear={onClearClip} colour="#C0453B" skin={skin}
+        style={{ width: 8, height: 8, borderRadius: 999 }}
+      />
     </span>
   );
 }

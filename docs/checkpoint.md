@@ -2,6 +2,40 @@
 
 Written so the next session doesn't rediscover any of this. Read this before touching audio.
 
+## Update — 11 Oct 2026: meters latch clips, fader drags relatively
+
+Newer than everything below it. Where the two disagree, this wins.
+
+- **Baseline before this change: `7ca1945`** ("gitignore: ignore
+  BUNNY_ACCESS_KEY.txt as insurance") on `claude/intelligent-fermat-oqesnj`,
+  working tree clean. If anything below misbehaves on the Mac,
+  `git diff 7ca1945` is the whole change.
+- **Where it came from.** SoundCraft 0.5.0 (storytold/soundcraft, Rust/egui,
+  MIT OR Apache-2.0) was reviewed for UI ideas. Its stack and its interface
+  don't fit ours; three control behaviours did. The MIT notice is in `NOTICE`.
+  Not taken: its command palette (we have ~8 actions), its plugin windows
+  (generic sliders, weaker than `DeviceView`), its fader curve (ours is
+  openDAW's `VolumeMapper` — one source of truth), its meter scale (separate
+  decision; worth revisiting — our bar gives the top 6 dB 10% of its length).
+- **Meters: hold and a clip latch.** `src/meter.ts` is pure ballistics:
+  instant attack, 20 dB/s release, a 2 s held-peak marker, and a clip light
+  that stays lit until clicked. Clip threshold is the top 16-bit code, because
+  takes are written as 16-bit WAV. Both the input meter and the master meter
+  use it. The input meter's number is now the **held peak**, not the live
+  level. The input latch clears when the device changes; neither clears on
+  its own when a take starts — deliberate for now, revisit if it nags.
+- **Meter release is timed, not per-frame.** It was `level * 0.8` per
+  animation frame, so a 120 Hz display fell twice as fast as a 60 Hz one.
+- **Fader no longer jumps to the pointer.** A press changes nothing; only
+  movement does. ⌘/Ctrl while dragging is 10× finer; ⌥/Alt-click or
+  double-click returns to unity.
+- **RUNTIME-UNVERIFIED.** Written in a sandbox without `node_modules`. The
+  24 new meter assertions pass in isolation and `meter.ts` typechecks; the
+  full `npm test` and `npm run build` could not run there. On the Mac: run
+  both, then check the master clip light against a deliberately hot mix
+  (Maximizer off) — the PEAKS layout caveat in `useEngineMeter.ts` still
+  applies.
+
 ## Update — 24 Sep 2026: the shared session cookie is chunked
 
 Newer than everything below it. Where the two disagree, this wins.
@@ -91,7 +125,7 @@ Newer than everything below it. Where the two disagree, this wins.
 - Timeline horizontal zoom (powers of two), shift-wheel to scroll.
 - Track names editable by double-click; writes to openDAW's label too.
 - Idea Drop browser, grouped by role.
-- `npm test` — 68 assertions, no browser, ~1s.
+- `npm test` — 92 assertions, no browser, ~1s.
 - `npm run dev` works locally; the dev server sets the COOP/COEP headers openDAW needs.
 
 ## Doesn't work / not built

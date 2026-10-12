@@ -16,27 +16,31 @@
  * loudest moments clip, and for setting a gain knob the peak is the number
  * that matters.
  */
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { SILENT_METER, clearClip, feedMeter, type MeterState } from "./meter";
 
 export interface InputMeter {
-  /** 0..1 peak of the last frame. */
-  level: number;
+  /** Level, held peak and clip latch — see `meter.ts`. */
+  reading: MeterState;
+  clearClip: () => void;
   /** True once audio has actually been observed above the noise floor. */
   sawSignal: boolean;
   error: string | null;
 }
 
 export function useInputMeter(deviceId: string | null, enabled: boolean): InputMeter {
-  const [level, setLevel] = useState(0);
+  const [reading, setReading] = useState<MeterState>(SILENT_METER);
+  const state = useRef<MeterState>(SILENT_METER);
   const [sawSignal, setSawSignal] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const frameRef = useRef(0);
 
   useEffect(() => {
-    if (!enabled || !deviceId) {
-      setLevel(0);
-      return;
-    }
+    // A new device starts with a clean latch: a clip on the last input says
+    // nothing about this one.
+    state.current = SILENT_METER;
+    setReading(SILENT_METER);
+    if (!enabled || !deviceId) return;
 
     let cancelled = false;
     let stream: MediaStream | null = null;
@@ -70,14 +74,18 @@ export function useInputMeter(deviceId: string | null, enabled: boolean): InputM
         source.connect(analyser);
 
         const buffer = new Float32Array(analyser.fftSize);
-        const tick = () => {
+        let last: number | null = null;
+        const tick = (now: number) => {
           analyser.getFloatTimeDomainData(buffer);
           let peak = 0;
           for (let i = 0; i < buffer.length; i++) {
             const v = Math.abs(buffer[i]);
             if (v > peak) peak = v;
           }
-          setLevel(peak);
+          const dt = last === null ? 0 : (now - last) / 1000;
+          last = now;
+          state.current = feedMeter(state.current, peak, dt);
+          setReading(state.current);
           // A floor, so mains hum and a noisy preamp don't count as "signal".
           if (peak > 0.02) setSawSignal(true);
           frameRef.current = requestAnimationFrame(tick);
@@ -101,5 +109,10 @@ export function useInputMeter(deviceId: string | null, enabled: boolean): InputM
     };
   }, [deviceId, enabled]);
 
-  return { level, sawSignal, error };
+  const clear = useCallback(() => {
+    state.current = clearClip(state.current);
+    setReading(state.current);
+  }, []);
+
+  return { reading, clearClip: clear, sawSignal, error };
 }
