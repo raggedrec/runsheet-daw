@@ -9,6 +9,7 @@
  * Column names were read from the live schema, not assumed.
  */
 import { supabase } from "./supabase";
+import type { DetectedChord, StoredAnalysis } from "./chords";
 
 export interface SongFile {
   id: string;
@@ -18,6 +19,12 @@ export interface SongFile {
   role: string;
   kind: string;
   addedAt: number;
+  /**
+   * The magic wand's cached output for this file, or null if never analysed.
+   * The same `idea_drop_files.analysis` jsonb Run Sheet reads and writes — so a
+   * chord edited in the DAW lands in Run Sheet's Detected Chords strip too.
+   */
+  analysis: StoredAnalysis | null;
 }
 
 export interface Song {
@@ -45,6 +52,35 @@ export class LoadError extends Error {
   }
 }
 
+/** A `chords` array is the one field the DAW relies on; anything else is a
+ *  blob that round-trips. Null, wrong-shaped or chord-less analysis reads as
+ *  "not analysed" rather than throwing on a schema that will keep changing. */
+function isStoredAnalysis(value: unknown): value is StoredAnalysis {
+  return (
+    typeof value === "object" && value !== null &&
+    Array.isArray((value as { chords?: unknown }).chords)
+  );
+}
+
+/**
+ * Write a file's chords back, preserving the rest of the analysis blob.
+ *
+ * Same column and shape as Run Sheet's `saveIdeaDropAnalysis`, so an edit here
+ * is an edit there. The spread keeps bpm/key/tuning and any field the DAW
+ * doesn't model; only `chords` is replaced.
+ */
+export async function saveFileChords(
+  fileId: string,
+  analysis: StoredAnalysis,
+  chords: DetectedChord[],
+): Promise<void> {
+  const { error } = await supabase
+    .from("idea_drop_files")
+    .update({ analysis: { ...analysis, chords } })
+    .eq("id", fileId);
+  if (error) throw new Error(error.message);
+}
+
 /** The song named in the URL, with its Idea Drop contents. */
 export async function loadSong(sceneId: string, trackId: string): Promise<Song> {
   const { data: track, error: trackErr } = await supabase
@@ -70,7 +106,7 @@ export async function loadSong(sceneId: string, trackId: string): Promise<Song> 
 
   const { data: files, error: filesErr } = await supabase
     .from("idea_drop_files")
-    .select("id, name, storage_path, role, kind, added_at")
+    .select("id, name, storage_path, role, kind, added_at, analysis")
     .eq("track_id", trackId)
     .order("added_at", { ascending: true });
 
@@ -96,6 +132,7 @@ export async function loadSong(sceneId: string, trackId: string): Promise<Song> 
         role: f.role ?? "other",
         kind: f.kind ?? "",
         addedAt: new Date(f.added_at).getTime(),
+        analysis: isStoredAnalysis(f.analysis) ? (f.analysis as StoredAnalysis) : null,
       })),
   };
 }
@@ -212,5 +249,6 @@ export async function uploadToIdeaDrop(
 
   // The row as it now exists, so the caller can show it in Idea Drop without a
   // re-fetch — and download or delete it like any other file.
-  return { id, name: file.name, storagePath, role, kind, addedAt: Date.now() };
+  // A freshly uploaded file has no analysis yet — the wand hasn't run on it.
+  return { id, name: file.name, storagePath, role, kind, addedAt: Date.now(), analysis: null };
 }

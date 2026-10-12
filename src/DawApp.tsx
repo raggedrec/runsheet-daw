@@ -35,6 +35,7 @@ import { TrackList, TRACK_COLUMN } from "./TrackList";
 import { StatusBar } from "./StatusBar";
 import { Browser } from "./Browser";
 import { ChordsPanel } from "./ChordsPanel";
+import { ChordLane } from "./ChordLane";
 import { MarkerStrip } from "./MarkerStrip";
 import {
   listMarkers, subscribeMarkers, addMarker, moveMarker, renameMarker, deleteMarker, hueFor,
@@ -43,7 +44,7 @@ import {
 import { useConsoleLog } from "./useConsoleLog";
 import { collectTakes } from "./opendaw/take";
 import { saveSession, loadSession } from "./session";
-import { uploadToIdeaDrop, downloadUrl, deleteIdeaDropFile } from "./runsheet";
+import { uploadToIdeaDrop, downloadUrl, deleteIdeaDropFile, saveFileChords } from "./runsheet";
 import { bounceMix } from "./opendaw/bounce";
 import { encodeWav } from "./wav";
 import { Dialog } from "./Dialog";
@@ -169,6 +170,38 @@ export default function DawApp() {
         ?.audioEffects.mapOr((c) => c.adapters().length, () => 0) ?? 0,
     // eslint-disable-next-line react-hooks/exhaustive-deps -- mixRevision is the trigger
     [session, mixRevision],
+  );
+
+  /*
+   * The detected-chords source: the mix's analysis, since chords are a
+   * song-level thing and the mix is the cleanest read. Falls back to any
+   * analysed file, so a song with only analysed stems still shows a chord lane.
+   */
+  const chordSource = useMemo(() => {
+    const withChords = (song?.files ?? []).filter((f) => (f.analysis?.chords.length ?? 0) > 0);
+    return withChords.find((f) => f.role === "mix") ?? withChords[0] ?? null;
+  }, [song]);
+
+  /*
+   * Rename a detected chord. Optimistic — the lane updates at once — then the
+   * write goes to the shared analysis column so Run Sheet's Detected Chords
+   * strip shows it too. A failed write is logged loudly (the engine log panel
+   * watches console.error) rather than silently dropped.
+   */
+  const renameChord = useCallback(
+    (index: number, label: string) => {
+      const file = chordSource;
+      const analysis = file?.analysis;
+      if (!file || !analysis) return;
+      const chords = analysis.chords.map((c, i) => (i === index ? { ...c, label } : c));
+      setSong((s) =>
+        s
+          ? { ...s, files: s.files.map((f) => (f.id === file.id ? { ...f, analysis: { ...analysis, chords } } : f)) }
+          : s,
+      );
+      void saveFileChords(file.id, analysis, chords).catch((err) => console.error("chord save failed", err));
+    },
+    [chordSource],
   );
 
   /*
@@ -1121,6 +1154,28 @@ export default function DawApp() {
                   />
                 </div>
               </div>
+
+              {/* The detected-chords lane, aligned over the timeline the same
+                  way (gutter-0 column, track-width spacer on the left). Only
+                  when a file has chords; the empty/analyse state comes later. */}
+              {chordSource?.analysis && (
+                <div style={{ display: "flex", flex: "0 0 auto" }}>
+                  <div style={{ width: TRACK_COLUMN, flex: "0 0 auto" }} />
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <ChordLane
+                      chords={chordSource.analysis.chords}
+                      duration={duration}
+                      zoom={zoom}
+                      scroll={scroll}
+                      playheadSeconds={seconds}
+                      skin={skin}
+                      accent={accent.solid}
+                      sourceName={chordSource.name}
+                      onRename={renameChord}
+                    />
+                  </div>
+                </div>
+              )}
 
               {/* Tracks and timeline scroll together — one set of rows. */}
               <div style={{ display: "flex", flex: 1, minHeight: 0, overflow: "auto" }}>

@@ -15,6 +15,7 @@ import { laneName, tempoOf, formatKey } from "./bundle.mjs";
 import { sanitizeLook, laneColorFor, LANE_HEIGHT, DEFAULT_LOOK } from "./bundle.mjs";
 import { encodeWav } from "./bundle.mjs";
 import { bandMagnitudeDb, eqResponseDb } from "./bundle.mjs";
+import { chordIndexAt } from "./bundle.mjs";
 import {
   feedMeter, clearClip, meterFill, linearToDb, SILENT_METER, METER_FLOOR_DB, RELEASE_DB_PER_SEC, HOLD_SECS, CLIP_LINEAR,
 } from "./bundle.mjs";
@@ -236,6 +237,22 @@ eq("-30 is halfway", meterFill(-30), 0.5);
 eq("over 0 clamps", meterFill(6), 1);
 eq("the floor is empty", meterFill(METER_FLOOR_DB), 0);
 eq("silence is the floor", linearToDb(0), METER_FLOOR_DB);
+
+console.log("  chord index at playhead (shared with Run Sheet)");
+{
+  const ch = [
+    { at: 0, label: "C", confidence: 1 },
+    { at: 2, label: "G", confidence: 1 },
+    { at: 4, label: "Am", confidence: 1 },
+  ];
+  eq("before the first chord", chordIndexAt(ch, -1), -1);
+  eq("on the first boundary", chordIndexAt(ch, 0), 0);
+  eq("inside the first", chordIndexAt(ch, 1.9), 0);
+  eq("exactly on a boundary takes the new chord", chordIndexAt(ch, 2), 1);
+  eq("inside the middle", chordIndexAt(ch, 3.5), 1);
+  eq("in the last, open-ended", chordIndexAt(ch, 999), 2);
+  eq("empty is -1", chordIndexAt([], 5), -1);
+}
 
 console.log(`\n  ${pass} passed, ${fail} failed\n`);
 process.exit(fail ? 1 : 0);
