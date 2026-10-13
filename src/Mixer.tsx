@@ -46,6 +46,8 @@ export interface MixerProps {
   /** The armed track's capture, for input gain and monitoring. Null when none. */
   armedCapture: Capture | null;
   armedName: string | null;
+  /** A take is recording — clears the clip lights so a latch is this take's. */
+  isRecording: boolean;
 }
 
 /** Sentinel for "the master's device chain is open", since master isn't a lane. */
@@ -63,7 +65,7 @@ function isMaximizer(effect: unknown): boolean {
   return (ctor?.ClassName ?? "").startsWith("Maximizer");
 }
 
-export function Mixer({ project, sampleService, lanes, skin, accent, revision, onChanged, inputDevices, deviceId, onChooseDevice, colorFor, armedCapture, armedName }: MixerProps) {
+export function Mixer({ project, sampleService, lanes, skin, accent, revision, onChanged, inputDevices, deviceId, onChooseDevice, colorFor, armedCapture, armedName, isRecording }: MixerProps) {
   /*
    * One panel, two views. Clicking a track name in the list swaps the strips
    * for that track's devices; clicking it again goes back. The mixer and the
@@ -72,6 +74,12 @@ export function Mixer({ project, sampleService, lanes, skin, accent, revision, o
    */
   const [openTrack, setOpenTrack] = useState<string | null>(null);
   const masterMeter = useMasterMeter(project);
+
+  // A latched clip should belong to the take you're recording, not the last one
+  // you played — so clear it when a take starts rather than only on a click.
+  useEffect(() => {
+    if (isRecording) masterMeter.clearClip();
+  }, [isRecording, masterMeter.clearClip]);
 
   const master = project.rootBoxAdapter.audioUnits.adapters().find((a) => a.isOutput);
 
@@ -212,6 +220,7 @@ export function Mixer({ project, sampleService, lanes, skin, accent, revision, o
           onChoose={onChooseDevice}
           armedCapture={armedCapture}
           armedName={armedName}
+          isRecording={isRecording}
         />
       </div>
 
@@ -663,7 +672,7 @@ function PanKnob({
  * offering nothing.
  */
 function RecordingInput({
-  skin, accent, devices, deviceId, onChoose, armedCapture, armedName,
+  skin, accent, devices, deviceId, onChoose, armedCapture, armedName, isRecording,
 }: {
   skin: Skin;
   accent: string;
@@ -672,8 +681,14 @@ function RecordingInput({
   onChoose: (id: string) => void;
   armedCapture: Capture | null;
   armedName: string | null;
+  isRecording: boolean;
 }) {
   const meter = useInputMeter(deviceId, devices.length > 0);
+
+  // Clear the input clip light when a take starts, so a latch is this take's.
+  useEffect(() => {
+    if (isRecording) meter.clearClip();
+  }, [isRecording, meter.clearClip]);
 
   // How many channels this device actually gives the browser — probed on the
   // real stream, because the web platform won't tell us any other way.

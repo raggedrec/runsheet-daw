@@ -1314,6 +1314,7 @@ export default function DawApp() {
                 colorFor={colorFor}
                 armedCapture={recordTrack?.capture ?? null}
                 armedName={recordTrack?.name ?? null}
+                isRecording={isRecording}
               />
             </div>
             </div>
