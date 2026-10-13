@@ -11,7 +11,7 @@ and why — including several days of findings that are expensive to rediscover.
 
 ```
 npm run dev      # localhost, with the COOP/COEP headers openDAW needs
-npm test         # 108 assertions, no browser, ~1 second
+npm test         # 124 assertions, no browser, ~1 second
 npm run build    # tsc -b && vite build
 ```
 

@@ -2,6 +2,40 @@
 
 Written so the next session doesn't rediscover any of this. Read this before touching audio.
 
+## Update — 13 Oct 2026 (cont.): chord source, spelling, edit tools, MIDI track
+
+Newer than everything below it. Where the two disagree, this wins. All of the
+below is live and confirmed on a real song.
+
+- **The chord source is chosen, not guessed.** A picker on the chord lane sets
+  which Idea Drop file the chords come from AND the wand analyses (persisted per
+  song in `localStorage` under `rsdaw:chordsrc:<songId>`). This was the real fix
+  for "bonkers" chords: a song with no mix fell back to the first stem — often
+  the lead vocal, which detects as noise. The default now avoids vocal/drum
+  stems; point it at a keys or guitar part (CP70 read cleanly). Quality is mostly
+  the source.
+- **The wand passes the key as a hint** (`parseKeyHint` in `src/chords.ts`),
+  which biases detection toward that key's chords. Without it the read drifts.
+- **Chords spell in the key's accidentals.** The analyser only ever spelled
+  sharps, so a flat-key song (Db/Bbm) never matched a chart written in flats.
+  `classesForKey` picks flats for the unambiguous flat majors (Db, Eb, F, Ab,
+  Bb and their minors), sharps otherwise. Changed in BOTH analyser copies —
+  `src/audioAnalysis.ts` here and RCR-TRACKER's `src/lib/audioAnalysis.ts` — so
+  the two apps detect identically. If you touch one, touch the other.
+- **Edit tools on the lane:** `+` adds a chord at the playhead, right-click
+  deletes, double-click renames. All go through `mutateChords`, which re-sorts by
+  time and writes the whole blob back to the shared column.
+- **MIDI chord track** (the ♪ button). `createChordTrack` (`src/opendaw/
+  midiChords.ts`) builds a Vaporisateur synth track — one note region of block
+  triads, each chord held `at`→next, timed in pulses (PPQN.Quarter = 960) from
+  the song tempo. `chordToMidi` parses labels to notes. It joins the lane list
+  like a record track (peaks null → the waveform timeline draws an empty row);
+  the notes PLAY and export rather than draw — no piano roll in our timeline, the
+  chord lane is the visual reference. Confirmed polyphonic and in time. Needs a
+  tempo; the button says so if there isn't one.
+- **Clip lights auto-clear on record start** (Mixer), so a latched clip belongs
+  to the take being recorded, not the last thing played. Clicking still clears.
+
 ## Update — 13 Oct 2026: detected chords on their own lane, shared three ways
 
 Newer than everything below it. Where the two disagree, this wins.
