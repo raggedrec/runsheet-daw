@@ -33,6 +33,11 @@ below is live and confirmed on a real song.
   the notes PLAY and export rather than draw — no piano roll in our timeline, the
   chord lane is the visual reference. Confirmed polyphonic and in time. Needs a
   tempo; the button says so if there isn't one.
+- **Export the chords as .mid** (the download button). `chordsToSmf`
+  (`src/midiFile.ts`) writes a Standard MIDI File (format 0) from the same chord
+  data and tempo as the in-DAW track — pure and unit-tested, no openDAW needed —
+  so the file and the track agree, and it opens in any DAW or notation app. Named
+  "<song> Chords.mid"; same tempo gate as the ♪ button.
 - **Clip lights auto-clear on record start** (Mixer), so a latched clip belongs
   to the take being recorded, not the last thing played. Clicking still clears.
 
