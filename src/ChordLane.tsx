@@ -10,6 +10,9 @@
  * way. The one under the playhead is picked out with the accent, the same chord
  * Run Sheet would highlight — both use `chordIndexAt`.
  *
+ * The label and wand live in the left gutter (ChordLaneControls), NOT over the
+ * blocks — otherwise they cover the chords at the start of the song.
+ *
  * Double-click a block to rename it. The edit writes back to the shared
  * analysis column (see DawApp.renameChord), so it lands in Run Sheet too.
  */
@@ -19,6 +22,73 @@ import { chordIndexAt, type DetectedChord } from "./chords";
 import { font, radius, size, type Skin } from "./theme";
 
 export const CHORD_LANE_HEIGHT = 30;
+
+/**
+ * The lane's controls, for the left gutter column — the label, the wand, and
+ * any status. Kept out of the blocks so nothing overlaps the first chords.
+ */
+export function ChordLaneControls({
+  chordCount, onAnalyse, analysing, error, sourceName, skin, accent,
+}: {
+  chordCount: number;
+  onAnalyse: (() => void) | null;
+  analysing: boolean;
+  error: string | null;
+  sourceName: string;
+  skin: Skin;
+  accent: string;
+}) {
+  return (
+    <div
+      style={{
+        height: CHORD_LANE_HEIGHT, display: "flex", alignItems: "center", gap: 6,
+        padding: "0 10px", boxSizing: "border-box", overflow: "hidden",
+        borderBottom: `1px solid ${skin.laneLine}`, background: skin.surfaceSunken,
+      }}
+    >
+      <span
+        style={{
+          font: `700 ${size.xs}px ${font.body}`, letterSpacing: ".06em",
+          color: skin.fgSubtle, flex: "0 0 auto",
+        }}
+      >
+        CHORDS
+      </span>
+
+      {onAnalyse && (
+        <button
+          onClick={onAnalyse}
+          disabled={analysing}
+          title={`Detect chords from ${sourceName}${chordCount ? " again" : ""} — runs in your browser`}
+          aria-label="Detect chords"
+          style={{
+            display: "grid", placeItems: "center", flex: "0 0 auto",
+            width: 24, height: 20, padding: 0,
+            background: "transparent", color: analysing ? skin.fgSubtle : accent,
+            border: `1px solid ${analysing ? skin.border : accent}`, borderRadius: radius.sm,
+            cursor: analysing ? "default" : "pointer",
+          }}
+        >
+          <Wand2 size={12} />
+        </button>
+      )}
+
+      {/* One status line, whichever applies, ellipsised to fit the gutter. */}
+      {(analysing || error || chordCount === 0) && (
+        <span
+          title={error ?? undefined}
+          style={{
+            font: `${size.xs}px ${font.body}`,
+            color: error ? "#C0453B" : skin.fgSubtle,
+            overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+          }}
+        >
+          {analysing ? "Analysing…" : error ? error : "none yet"}
+        </span>
+      )}
+    </div>
+  );
+}
 
 export interface ChordLaneProps {
   chords: ReadonlyArray<DetectedChord>;
@@ -30,20 +100,12 @@ export interface ChordLaneProps {
   playheadSeconds: number;
   skin: Skin;
   accent: string;
-  /** Where the chords came from, shown as the lane's label. */
-  sourceName: string;
   /** Rename chord `index` to `label`. Null disables editing. */
   onRename: ((index: number, label: string) => void) | null;
-  /** Run the wand on the mix. Null when there's nothing to analyse. */
-  onAnalyse: (() => void) | null;
-  /** The wand is running. */
-  analysing: boolean;
-  /** What the last analysis or save reported, if it failed. */
-  error: string | null;
 }
 
 export function ChordLane({
-  chords, duration, zoom, scroll, playheadSeconds, skin, accent, sourceName, onRename, onAnalyse, analysing, error,
+  chords, duration, zoom, scroll, playheadSeconds, skin, accent, onRename,
 }: ChordLaneProps) {
   const ref = useRef<HTMLDivElement | null>(null);
   const [width, setWidth] = useState(0);
@@ -74,63 +136,6 @@ export function ChordLane({
         background: skin.surfaceSunken, overflow: "hidden",
       }}
     >
-      {/* Controls pinned left, over the blocks — the label, the wand, and any
-          error — without moving with the timeline. */}
-      <div
-        style={{
-          position: "absolute", left: 6, top: "50%", transform: "translateY(-50%)", zIndex: 2,
-          display: "flex", alignItems: "center", gap: 5, maxWidth: "70%",
-        }}
-      >
-        <span
-          style={{
-            padding: "2px 6px", background: skin.surface, borderRadius: radius.sm,
-            border: `1px solid ${skin.border}`,
-            font: `700 ${size.xs}px ${font.body}`, letterSpacing: ".06em",
-            color: skin.fgSubtle, whiteSpace: "nowrap", flex: "0 0 auto",
-          }}
-          title={`Detected chords — ${sourceName}`}
-        >
-          CHORDS
-        </span>
-
-        {onAnalyse && (
-          <button
-            onClick={onAnalyse}
-            disabled={analysing}
-            title={`Detect chords from ${sourceName}${chords.length ? " again" : ""} — runs in your browser`}
-            style={{
-              display: "flex", alignItems: "center", gap: 4, flex: "0 0 auto",
-              padding: "2px 7px", background: skin.surface, color: analysing ? skin.fgSubtle : accent,
-              border: `1px solid ${analysing ? skin.border : accent}`, borderRadius: radius.sm,
-              font: `600 ${size.xs}px ${font.body}`, cursor: analysing ? "default" : "pointer",
-            }}
-          >
-            <Wand2 size={11} />
-            {analysing ? "Analysing…" : chords.length ? "Re-analyse" : "Analyse"}
-          </button>
-        )}
-
-        {/* An empty lane says so, so it doesn't look broken before the wand runs. */}
-        {!analysing && !error && chords.length === 0 && (
-          <span style={{ font: `${size.xs}px ${font.body}`, color: skin.fgSubtle, whiteSpace: "nowrap" }}>
-            no chords yet
-          </span>
-        )}
-
-        {error && (
-          <span
-            title={error}
-            style={{
-              font: `${size.xs}px ${font.body}`, color: "#C0453B",
-              overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
-            }}
-          >
-            {error}
-          </span>
-        )}
-      </div>
-
       {chords.map((chord, i) => {
         const x0 = secondsToX(chord.at);
         const next = i + 1 < chords.length ? chords[i + 1].at : duration;

@@ -35,7 +35,7 @@ import { TrackList, TRACK_COLUMN } from "./TrackList";
 import { StatusBar } from "./StatusBar";
 import { Browser } from "./Browser";
 import { ChordsPanel } from "./ChordsPanel";
-import { ChordLane } from "./ChordLane";
+import { ChordLane, ChordLaneControls } from "./ChordLane";
 import { MarkerStrip } from "./MarkerStrip";
 import {
   listMarkers, subscribeMarkers, addMarker, moveMarker, renameMarker, deleteMarker, hueFor,
@@ -1216,7 +1216,19 @@ export default function DawApp() {
                   file has been read. */}
               {wandTarget && (
                 <div style={{ display: "flex", flex: "0 0 auto" }}>
-                  <div style={{ width: TRACK_COLUMN, flex: "0 0 auto" }} />
+                  {/* Controls in the gutter, over the track column — not over the
+                      blocks, which is what hid the first chords. */}
+                  <div style={{ width: TRACK_COLUMN, flex: "0 0 auto" }}>
+                    <ChordLaneControls
+                      chordCount={chordSource?.analysis?.chords.length ?? 0}
+                      onAnalyse={analyseChords}
+                      analysing={analysing}
+                      error={chordError}
+                      sourceName={chordSource?.name ?? wandTarget.name}
+                      skin={skin}
+                      accent={accent.solid}
+                    />
+                  </div>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <ChordLane
                       chords={chordSource?.analysis?.chords ?? []}
@@ -1226,11 +1238,7 @@ export default function DawApp() {
                       playheadSeconds={seconds}
                       skin={skin}
                       accent={accent.solid}
-                      sourceName={chordSource?.name ?? wandTarget.name}
                       onRename={chordSource ? renameChord : null}
-                      onAnalyse={analyseChords}
-                      analysing={analysing}
-                      error={chordError}
                     />
                   </div>
                 </div>
