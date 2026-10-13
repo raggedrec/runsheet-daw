@@ -34,10 +34,10 @@ Newer than everything below it. Where the two disagree, this wins.
   (`tracks.lyrics_chords`, hand-laid text) read by ChordsPanel and the Writer's
   lyrics editor — NOT the detected chords. Editing detected chords does not touch
   it, and must not: a chord-list rewrite would wreck the lyric alignment.
-- **Unverified at write time:** that the Writer's Bunny deploy is live, and the
-  round-trip both ways (the RLS UPDATE on `idea_drop_files.analysis` succeeding
-  from each app). The DAW's rename and wand share one write path — if one
-  persists, both do.
+- **Verified 13 Oct:** the Writer is deployed, and chords round-trip both ways —
+  an edit in any of the three apps lands in the other two. The RLS UPDATE on
+  `idea_drop_files.analysis` succeeds from each. The DAW wand detects chords and
+  they appear in Run Sheet and the Writer.
 
 ## Update — 11 Oct 2026: meters latch clips, fader drags relatively
 
