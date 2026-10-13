@@ -11,7 +11,7 @@ and why — including several days of findings that are expensive to rediscover.
 
 ```
 npm run dev      # localhost, with the COOP/COEP headers openDAW needs
-npm test         # 92 assertions, no browser, ~1 second
+npm test         # 108 assertions, no browser, ~1 second
 npm run build    # tsc -b && vite build
 ```
 
@@ -90,5 +90,10 @@ moment it is network-reachable — a Vercel preview counts.
 
 - **RCR-TRACKER** — Run Sheet itself, private. Links here via the DAW button in
   the song detail panel, sharing a session cookie on the parent domain.
+- **RCR-Writer Companion** — the Writer app (deploys to Bunny, not git-tracked).
+  Shares detected chords with this app and Run Sheet through one column,
+  `idea_drop_files.analysis` — edit in any, it shows in the others. A chord is
+  `{ at, label, confidence }` in all three; change the shape in all three.
+  Distinct from `tracks.lyrics_chords`, the hand-laid chart (ChordsPanel here).
 - `docs/ui-target.md` — the layout target, from Shayne's mockup.
 - `docs/checkpoint.md` — current state. Read first, update when it changes.

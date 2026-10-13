@@ -2,6 +2,43 @@
 
 Written so the next session doesn't rediscover any of this. Read this before touching audio.
 
+## Update — 13 Oct 2026: detected chords on their own lane, shared three ways
+
+Newer than everything below it. Where the two disagree, this wins.
+
+- **A chord lane under the marker strip.** It reads the magic wand's timed
+  chords — `{ at, label, confidence }[]` — and tiles them, each sounding from its
+  `at` to the next. The block under the playhead is lit via `chordIndexAt`
+  (ported verbatim from Run Sheet in `src/chords.ts`, so both apps pick the same
+  current chord). Double-click a block to rename.
+- **One column, three apps.** The chords live in `idea_drop_files.analysis`
+  (jsonb) — the SAME blob Run Sheet writes and the Writer app now reads. An edit
+  in any one writes `{ ...analysis, chords }` back to that column, so it shows up
+  in the other two. There is no second copy and no sync layer; the column is the
+  source of truth. The DAW's writes (`saveFileChords`, `saveFileAnalysis`) and
+  the Writer's are plain `update({ analysis }).eq("id", fileId)`, same as
+  Run Sheet's `saveIdeaDropAnalysis`. If the shape ever changes, change it in all
+  three — a chord is `{ at, label, confidence }` everywhere.
+- **The DAW has its own wand now.** `src/audioAnalysis.ts` + its worker are
+  ported verbatim from Run Sheet (RCR's own code, so AGPL here is fine; it is
+  pure, no imports, no browser globals). `src/analyse.ts` fetches the mix's
+  signed URL, decodes it in the browser, and runs the analyser in a Worker
+  (main-thread fallback). The samples never leave the tab. The lane is
+  **mix-sourced** — chords are a song-level thing — falling back to any analysed
+  file.
+- **Controls live in the gutter, never over the blocks.** The first version put
+  the label and wand at `left: 0` inside the strip, which hid the chords at the
+  start of the song. `ChordLaneControls` renders them in the track-column gutter
+  instead; the whole timeline width is blocks.
+- **Still Run-Sheet-owned: the lyrics/chords *chart*.** That is a different field
+  (`tracks.lyrics_chords`, hand-laid text) read by ChordsPanel and the Writer's
+  lyrics editor — NOT the detected chords. Editing detected chords does not touch
+  it, and must not: a chord-list rewrite would wreck the lyric alignment.
+- **Unverified at write time:** that the Writer's Bunny deploy is live, and the
+  round-trip both ways (the RLS UPDATE on `idea_drop_files.analysis` succeeding
+  from each app). The DAW's rename and wand share one write path — if one
+  persists, both do.
+
 ## Update — 11 Oct 2026: meters latch clips, fader drags relatively
 
 Newer than everything below it. Where the two disagree, this wins.
