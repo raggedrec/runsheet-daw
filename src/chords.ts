@@ -29,6 +29,28 @@ export interface StoredAnalysis {
   chordConfidence?: number;
 }
 
+/** Pitch class of each note name, sharps and flats alike. */
+const NOTE_PC: Record<string, number> = {
+  C: 0, "C#": 1, Db: 1, D: 2, "D#": 3, Eb: 3, E: 4, F: 5, "F#": 6, Gb: 6,
+  G: 7, "G#": 8, Ab: 8, A: 9, "A#": 10, Bb: 10, B: 11,
+};
+
+/**
+ * Parse Run Sheet's free-text key (e.g. "Db", "Bbm", "F# minor") into the
+ * analyser's key hint. Passing it biases detection toward that key's chords —
+ * without it the read drifts, which is most of why an unguided wand disagrees
+ * with the written chart. Undefined when the field is empty or unparseable.
+ */
+export function parseKeyHint(key: string | null | undefined): { tonic: number; minor: boolean } | undefined {
+  if (!key) return undefined;
+  const m = /^([A-G](?:#|b)?)\s*(m|min|minor)?/i.exec(key.trim());
+  if (!m) return undefined;
+  const root = m[1][0].toUpperCase() + (m[1][1] ?? "").toLowerCase();
+  const tonic = NOTE_PC[root];
+  if (tonic === undefined) return undefined;
+  return { tonic, minor: Boolean(m[2]) };
+}
+
 /**
  * Index of the chord sounding at `seconds`, or -1 before the first. Binary
  * search over the sorted `at` times — ported verbatim from Run Sheet's

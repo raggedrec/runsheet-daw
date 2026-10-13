@@ -46,7 +46,7 @@ import { collectTakes } from "./opendaw/take";
 import { saveSession, loadSession } from "./session";
 import { uploadToIdeaDrop, downloadUrl, deleteIdeaDropFile, saveFileChords, saveFileAnalysis, signedUrl } from "./runsheet";
 import { decodeToChannels, analyseInWorker } from "./analyse";
-import type { StoredAnalysis } from "./chords";
+import { parseKeyHint, type StoredAnalysis, type DetectedChord } from "./chords";
 import { bounceMix } from "./opendaw/bounce";
 import { encodeWav } from "./wav";
 import { Dialog } from "./Dialog";
@@ -175,36 +175,102 @@ export default function DawApp() {
   );
 
   /*
-   * The detected-chords source: the mix's analysis, since chords are a
-   * song-level thing and the mix is the cleanest read. Falls back to any
-   * analysed file, so a song with only analysed stems still shows a chord lane.
+   * Which Idea Drop file feeds the chord lane — both the one displayed and the
+   * one the wand analyses. The user picks it (chords are only as good as their
+   * source: a vocal or drum stem makes a hopeless chord read), persisted per
+   * song like track colours.
    */
-  const chordSource = useMemo(() => {
-    const withChords = (song?.files ?? []).filter((f) => (f.analysis?.chords.length ?? 0) > 0);
-    return withChords.find((f) => f.role === "mix") ?? withChords[0] ?? null;
-  }, [song]);
+  const [chordSourceId, setChordSourceId] = useState<string | null>(null);
+  useEffect(() => {
+    if (!song) {
+      setChordSourceId(null);
+      return;
+    }
+    try {
+      setChordSourceId(localStorage.getItem(`rsdaw:chordsrc:${song.id}`));
+    } catch {
+      setChordSourceId(null);
+    }
+  }, [song?.id]);
 
-  /*
-   * What the wand analyses: the mix, since the chord lane is mix-sourced. Falls
-   * back to the first audio file so a song with only stems can still be read.
-   */
-  const wandTarget = useMemo(() => {
-    const audio = (song?.files ?? []).filter((f) => f.storagePath && (f.role === "mix" || f.role === "stem"));
-    return audio.find((f) => f.role === "mix") ?? audio[0] ?? null;
-  }, [song]);
+  const audioFiles = useMemo(
+    () => (song?.files ?? []).filter((f) => f.storagePath && (f.role === "mix" || f.role === "stem")),
+    [song],
+  );
+
+  const chordFile = useMemo(() => {
+    if (audioFiles.length === 0) return null;
+    const chosen = audioFiles.find((f) => f.id === chordSourceId);
+    if (chosen) return chosen;
+    // No pick yet: a mix if there is one, else a harmonic-sounding stem (never
+    // default to a vocal or drum stem), else the first file.
+    return (
+      audioFiles.find((f) => f.role === "mix") ??
+      audioFiles.find((f) => /key|pian|rhod|wurl|cp\d|organ|synth|pad|gtr|guit|chord|\bep\b|elec/i.test(f.name)) ??
+      audioFiles[0]
+    );
+  }, [audioFiles, chordSourceId]);
+
+  const pickChordSource = useCallback(
+    (id: string) => {
+      setChordSourceId(id);
+      try {
+        if (song) localStorage.setItem(`rsdaw:chordsrc:${song.id}`, id);
+      } catch {
+        /* a blocked store just means the choice won't outlive the tab */
+      }
+    },
+    [song?.id],
+  );
 
   const [analysing, setAnalysing] = useState(false);
   const [chordError, setChordError] = useState<string | null>(null);
 
   /*
-   * The magic wand: fetch the file, decode it in the browser, run the ported
-   * analyser in a worker, then write the result to the shared analysis column —
-   * so a detection here shows up in Run Sheet too. The samples never leave the
-   * tab. Errors surface on the lane rather than only in the console, because a
-   * button the user pressed deserves to say why it did nothing.
+   * One writer for every chord edit: apply `fn` to the source file's chords,
+   * re-sort by time, update the lane optimistically, then write the whole
+   * analysis blob back to the shared column so Run Sheet and the Writer see it.
+   * A file with no analysis yet gets one the moment a chord is added.
+   */
+  const mutateChords = useCallback(
+    (fn: (chords: DetectedChord[]) => DetectedChord[]) => {
+      const file = chordFile;
+      if (!file) return;
+      const analysis = file.analysis ?? ({ chords: [] } as StoredAnalysis);
+      const chords = fn(analysis.chords).slice().sort((a, b) => a.at - b.at);
+      setSong((s) =>
+        s
+          ? { ...s, files: s.files.map((f) => (f.id === file.id ? { ...f, analysis: { ...analysis, chords } } : f)) }
+          : s,
+      );
+      void saveFileChords(file.id, analysis, chords).catch((err) => console.error("chord save failed", err));
+    },
+    [chordFile],
+  );
+
+  const renameChord = useCallback(
+    (index: number, label: string) => mutateChords((ch) => ch.map((c, i) => (i === index ? { ...c, label } : c))),
+    [mutateChords],
+  );
+  const deleteChord = useCallback(
+    (index: number) => mutateChords((ch) => ch.filter((_, i) => i !== index)),
+    [mutateChords],
+  );
+  const addChordAt = useCallback(
+    (at: number) => mutateChords((ch) => [...ch, { at: Math.max(0, at), label: "N.C.", confidence: 1 }]),
+    [mutateChords],
+  );
+
+  /*
+   * The magic wand: fetch the chosen file, decode it in the browser, run the
+   * ported analyser in a worker, then write the result to the shared analysis
+   * column — so a detection here shows up in Run Sheet too. The samples never
+   * leave the tab. The song's key is passed as a hint, which biases detection
+   * toward that key's chords (without it the read drifts). Errors surface on the
+   * lane, because a button the user pressed deserves to say why it did nothing.
    */
   const analyseChords = useCallback(async () => {
-    const target = wandTarget;
+    const target = chordFile;
     if (!target || analysing) return;
     setAnalysing(true);
     setChordError(null);
@@ -213,7 +279,7 @@ export default function DawApp() {
       const res = await fetch(url);
       if (!res.ok) throw new Error(`Couldn't fetch ${target.name} (HTTP ${res.status}).`);
       const { channels, sampleRate } = await decodeToChannels(await res.arrayBuffer());
-      const result = await analyseInWorker(channels, sampleRate, true);
+      const result = await analyseInWorker(channels, sampleRate, true, { key: parseKeyHint(song?.key ?? null) });
       if (result.bpm === null && result.key === null && result.chords.length === 0) {
         throw new Error("Couldn't get a reading — the file may be too short or too quiet.");
       }
@@ -235,29 +301,7 @@ export default function DawApp() {
     } finally {
       setAnalysing(false);
     }
-  }, [wandTarget, analysing]);
-
-  /*
-   * Rename a detected chord. Optimistic — the lane updates at once — then the
-   * write goes to the shared analysis column so Run Sheet's Detected Chords
-   * strip shows it too. A failed write is logged loudly (the engine log panel
-   * watches console.error) rather than silently dropped.
-   */
-  const renameChord = useCallback(
-    (index: number, label: string) => {
-      const file = chordSource;
-      const analysis = file?.analysis;
-      if (!file || !analysis) return;
-      const chords = analysis.chords.map((c, i) => (i === index ? { ...c, label } : c));
-      setSong((s) =>
-        s
-          ? { ...s, files: s.files.map((f) => (f.id === file.id ? { ...f, analysis: { ...analysis, chords } } : f)) }
-          : s,
-      );
-      void saveFileChords(file.id, analysis, chords).catch((err) => console.error("chord save failed", err));
-    },
-    [chordSource],
-  );
+  }, [chordFile, analysing, song?.key]);
 
   /*
    * The log opens itself the first time something goes wrong, and stays shut
@@ -1214,31 +1258,36 @@ export default function DawApp() {
                   way (gutter-0 column, track-width spacer on the left). Shown
                   whenever there's audio to analyse — empty with a wand until a
                   file has been read. */}
-              {wandTarget && (
+              {chordFile && (
                 <div style={{ display: "flex", flex: "0 0 auto" }}>
                   {/* Controls in the gutter, over the track column — not over the
                       blocks, which is what hid the first chords. */}
                   <div style={{ width: TRACK_COLUMN, flex: "0 0 auto" }}>
                     <ChordLaneControls
-                      chordCount={chordSource?.analysis?.chords.length ?? 0}
+                      chordCount={chordFile.analysis?.chords.length ?? 0}
                       onAnalyse={analyseChords}
                       analysing={analysing}
                       error={chordError}
-                      sourceName={chordSource?.name ?? wandTarget.name}
+                      sources={audioFiles}
+                      sourceId={chordFile.id}
+                      onPickSource={pickChordSource}
+                      onAddAtPlayhead={() => addChordAt(seconds)}
                       skin={skin}
                       accent={accent.solid}
                     />
                   </div>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <ChordLane
-                      chords={chordSource?.analysis?.chords ?? []}
+                      chords={chordFile.analysis?.chords ?? []}
                       duration={duration}
                       zoom={zoom}
                       scroll={scroll}
                       playheadSeconds={seconds}
                       skin={skin}
                       accent={accent.solid}
-                      onRename={chordSource ? renameChord : null}
+                      onRename={renameChord}
+                      onDelete={deleteChord}
+                      analysing={analysing}
                     />
                   </div>
                 </div>

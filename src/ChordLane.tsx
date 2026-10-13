@@ -7,84 +7,96 @@
  * column as the timeline canvas, so x here is x there.
  *
  * Each chord sounds from its `at` until the next one's; the blocks tile that
- * way. The one under the playhead is picked out with the accent, the same chord
- * Run Sheet would highlight — both use `chordIndexAt`.
+ * way. The one under the playhead is picked out with the accent (via
+ * `chordIndexAt`, shared with Run Sheet). Status text (analysing, error, empty)
+ * fills the wide strip; the controls live in the gutter (ChordLaneControls).
  *
- * The label and wand live in the left gutter (ChordLaneControls), NOT over the
- * blocks — otherwise they cover the chords at the start of the song.
- *
- * Double-click a block to rename it. The edit writes back to the shared
- * analysis column (see DawApp.renameChord), so it lands in Run Sheet too.
+ * Double-click a block to rename, right-click to delete. Both write back to the
+ * shared analysis column, so the edit lands in Run Sheet and the Writer too.
  */
 import { useEffect, useRef, useState } from "react";
-import { Wand2 } from "lucide-react";
+import { Wand2, Plus } from "lucide-react";
 import { chordIndexAt, type DetectedChord } from "./chords";
 import { font, radius, size, type Skin } from "./theme";
 
 export const CHORD_LANE_HEIGHT = 30;
+const RED = "#C0453B";
+
+/** A source file the chords can come from. */
+export interface ChordSource {
+  id: string;
+  name: string;
+}
 
 /**
- * The lane's controls, for the left gutter column — the label, the wand, and
- * any status. Kept out of the blocks so nothing overlaps the first chords.
+ * The lane's controls, for the left gutter column: the source picker, add, and
+ * the wand. Kept out of the blocks so nothing overlaps the first chords. The
+ * gutter is narrow, so status text lives in the strip, not here.
  */
 export function ChordLaneControls({
-  chordCount, onAnalyse, analysing, error, sourceName, skin, accent,
+  chordCount, onAnalyse, analysing, error, sources, sourceId, onPickSource, onAddAtPlayhead, skin, accent,
 }: {
   chordCount: number;
   onAnalyse: (() => void) | null;
   analysing: boolean;
   error: string | null;
-  sourceName: string;
+  sources: ReadonlyArray<ChordSource>;
+  sourceId: string;
+  onPickSource: (id: string) => void;
+  onAddAtPlayhead: (() => void) | null;
   skin: Skin;
   accent: string;
 }) {
+  const iconBtn = (colour: string, enabled: boolean): React.CSSProperties => ({
+    display: "grid", placeItems: "center", flex: "0 0 auto", width: 22, height: 20, padding: 0,
+    background: "transparent", color: enabled ? colour : skin.fgSubtle,
+    border: `1px solid ${enabled ? colour : skin.border}`, borderRadius: radius.sm,
+    cursor: enabled ? "pointer" : "default",
+  });
+
   return (
     <div
       style={{
-        height: CHORD_LANE_HEIGHT, display: "flex", alignItems: "center", gap: 6,
-        padding: "0 10px", boxSizing: "border-box", overflow: "hidden",
+        height: CHORD_LANE_HEIGHT, display: "flex", alignItems: "center", gap: 4,
+        padding: "0 8px", boxSizing: "border-box", overflow: "hidden",
         borderBottom: `1px solid ${skin.laneLine}`, background: skin.surfaceSunken,
       }}
     >
-      <span
+      {/* Which track the chords come from — the single biggest lever on quality,
+          so it's the primary control. A vocal or drum stem reads badly; point it
+          at a keys or guitar part. */}
+      <select
+        value={sourceId}
+        onChange={(e) => onPickSource(e.target.value)}
+        title="Which track the chords are detected from"
         style={{
-          font: `700 ${size.xs}px ${font.body}`, letterSpacing: ".06em",
-          color: skin.fgSubtle, flex: "0 0 auto",
+          flex: 1, minWidth: 0, height: 20,
+          font: `${size.xs}px ${font.body}`, color: skin.fg,
+          background: skin.surface, border: `1px solid ${skin.border}`,
+          borderRadius: radius.sm, padding: "0 2px",
         }}
       >
-        CHORDS
-      </span>
+        {sources.map((f) => (
+          <option key={f.id} value={f.id}>{f.name}</option>
+        ))}
+      </select>
+
+      {onAddAtPlayhead && (
+        <button onClick={onAddAtPlayhead} title="Add a chord at the playhead" aria-label="Add chord" style={iconBtn(accent, true)}>
+          <Plus size={12} />
+        </button>
+      )}
 
       {onAnalyse && (
         <button
           onClick={onAnalyse}
           disabled={analysing}
-          title={`Detect chords from ${sourceName}${chordCount ? " again" : ""} — runs in your browser`}
+          title={error ?? `Detect chords from this track${chordCount ? " again" : ""} — runs in your browser`}
           aria-label="Detect chords"
-          style={{
-            display: "grid", placeItems: "center", flex: "0 0 auto",
-            width: 24, height: 20, padding: 0,
-            background: "transparent", color: analysing ? skin.fgSubtle : accent,
-            border: `1px solid ${analysing ? skin.border : accent}`, borderRadius: radius.sm,
-            cursor: analysing ? "default" : "pointer",
-          }}
+          style={iconBtn(error ? RED : accent, !analysing)}
         >
           <Wand2 size={12} />
         </button>
-      )}
-
-      {/* One status line, whichever applies, ellipsised to fit the gutter. */}
-      {(analysing || error || chordCount === 0) && (
-        <span
-          title={error ?? undefined}
-          style={{
-            font: `${size.xs}px ${font.body}`,
-            color: error ? "#C0453B" : skin.fgSubtle,
-            overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
-          }}
-        >
-          {analysing ? "Analysing…" : error ? error : "none yet"}
-        </span>
       )}
     </div>
   );
@@ -102,10 +114,14 @@ export interface ChordLaneProps {
   accent: string;
   /** Rename chord `index` to `label`. Null disables editing. */
   onRename: ((index: number, label: string) => void) | null;
+  /** Delete chord `index` (right-click). Null disables deleting. */
+  onDelete: ((index: number) => void) | null;
+  /** The wand is running — shown in the empty strip. */
+  analysing: boolean;
 }
 
 export function ChordLane({
-  chords, duration, zoom, scroll, playheadSeconds, skin, accent, onRename,
+  chords, duration, zoom, scroll, playheadSeconds, skin, accent, onRename, onDelete, analysing,
 }: ChordLaneProps) {
   const ref = useRef<HTMLDivElement | null>(null);
   const [width, setWidth] = useState(0);
@@ -136,6 +152,20 @@ export function ChordLane({
         background: skin.surfaceSunken, overflow: "hidden",
       }}
     >
+      {/* Empty lane: say how to fill it rather than looking broken. */}
+      {chords.length === 0 && (
+        <span
+          style={{
+            position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)",
+            font: `${size.xs}px ${font.body}`, color: skin.fgSubtle,
+          }}
+        >
+          {analysing
+            ? "Analysing…"
+            : "No chords — pick a source and press the wand, or + to add one."}
+        </span>
+      )}
+
       {chords.map((chord, i) => {
         const x0 = secondsToX(chord.at);
         const next = i + 1 < chords.length ? chords[i + 1].at : duration;
@@ -171,7 +201,18 @@ export function ChordLane({
           <button
             key={i}
             onDoubleClick={() => onRename && setEditing(i)}
-            title={onRename ? `${chord.label} — double-click to rename` : chord.label}
+            onContextMenu={(e) => {
+              if (!onDelete) return;
+              // Right-click deletes — a chord block has no other obvious menu,
+              // and a per-block ✕ would be unhittable on a narrow one.
+              e.preventDefault();
+              onDelete(i);
+            }}
+            title={
+              onRename
+                ? `${chord.label} — double-click to rename, right-click to delete`
+                : chord.label
+            }
             style={{
               position: "absolute", left: x0, top: 3, width: w, height: CHORD_LANE_HEIGHT - 6,
               display: "flex", alignItems: "center", justifyContent: "center",
