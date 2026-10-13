@@ -81,6 +81,16 @@ export async function saveFileChords(
   if (error) throw new Error(error.message);
 }
 
+/**
+ * Write a fresh analysis blob for a file — what the magic wand produces. Same
+ * column and shape Run Sheet's wand writes, so a DAW analysis shows up there,
+ * and vice versa. Replaces whatever was cached before.
+ */
+export async function saveFileAnalysis(fileId: string, analysis: StoredAnalysis): Promise<void> {
+  const { error } = await supabase.from("idea_drop_files").update({ analysis }).eq("id", fileId);
+  if (error) throw new Error(error.message);
+}
+
 /** The song named in the URL, with its Idea Drop contents. */
 export async function loadSong(sceneId: string, trackId: string): Promise<Song> {
   const { data: track, error: trackErr } = await supabase

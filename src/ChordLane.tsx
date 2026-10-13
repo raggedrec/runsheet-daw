@@ -14,6 +14,7 @@
  * analysis column (see DawApp.renameChord), so it lands in Run Sheet too.
  */
 import { useEffect, useRef, useState } from "react";
+import { Wand2 } from "lucide-react";
 import { chordIndexAt, type DetectedChord } from "./chords";
 import { font, radius, size, type Skin } from "./theme";
 
@@ -33,10 +34,16 @@ export interface ChordLaneProps {
   sourceName: string;
   /** Rename chord `index` to `label`. Null disables editing. */
   onRename: ((index: number, label: string) => void) | null;
+  /** Run the wand on the mix. Null when there's nothing to analyse. */
+  onAnalyse: (() => void) | null;
+  /** The wand is running. */
+  analysing: boolean;
+  /** What the last analysis or save reported, if it failed. */
+  error: string | null;
 }
 
 export function ChordLane({
-  chords, duration, zoom, scroll, playheadSeconds, skin, accent, sourceName, onRename,
+  chords, duration, zoom, scroll, playheadSeconds, skin, accent, sourceName, onRename, onAnalyse, analysing, error,
 }: ChordLaneProps) {
   const ref = useRef<HTMLDivElement | null>(null);
   const [width, setWidth] = useState(0);
@@ -67,20 +74,62 @@ export function ChordLane({
         background: skin.surfaceSunken, overflow: "hidden",
       }}
     >
-      {/* Label pinned left, over the blocks — says what this bar is and where
-          its chords came from, without moving with the timeline. */}
-      <span
+      {/* Controls pinned left, over the blocks — the label, the wand, and any
+          error — without moving with the timeline. */}
+      <div
         style={{
           position: "absolute", left: 6, top: "50%", transform: "translateY(-50%)", zIndex: 2,
-          padding: "2px 6px", background: skin.surface, borderRadius: radius.sm,
-          border: `1px solid ${skin.border}`,
-          font: `700 ${size.xs}px ${font.body}`, letterSpacing: ".06em",
-          color: skin.fgSubtle, pointerEvents: "none", whiteSpace: "nowrap",
+          display: "flex", alignItems: "center", gap: 5, maxWidth: "70%",
         }}
-        title={`Detected chords — ${sourceName}`}
       >
-        CHORDS
-      </span>
+        <span
+          style={{
+            padding: "2px 6px", background: skin.surface, borderRadius: radius.sm,
+            border: `1px solid ${skin.border}`,
+            font: `700 ${size.xs}px ${font.body}`, letterSpacing: ".06em",
+            color: skin.fgSubtle, whiteSpace: "nowrap", flex: "0 0 auto",
+          }}
+          title={`Detected chords — ${sourceName}`}
+        >
+          CHORDS
+        </span>
+
+        {onAnalyse && (
+          <button
+            onClick={onAnalyse}
+            disabled={analysing}
+            title={`Detect chords from ${sourceName}${chords.length ? " again" : ""} — runs in your browser`}
+            style={{
+              display: "flex", alignItems: "center", gap: 4, flex: "0 0 auto",
+              padding: "2px 7px", background: skin.surface, color: analysing ? skin.fgSubtle : accent,
+              border: `1px solid ${analysing ? skin.border : accent}`, borderRadius: radius.sm,
+              font: `600 ${size.xs}px ${font.body}`, cursor: analysing ? "default" : "pointer",
+            }}
+          >
+            <Wand2 size={11} />
+            {analysing ? "Analysing…" : chords.length ? "Re-analyse" : "Analyse"}
+          </button>
+        )}
+
+        {/* An empty lane says so, so it doesn't look broken before the wand runs. */}
+        {!analysing && !error && chords.length === 0 && (
+          <span style={{ font: `${size.xs}px ${font.body}`, color: skin.fgSubtle, whiteSpace: "nowrap" }}>
+            no chords yet
+          </span>
+        )}
+
+        {error && (
+          <span
+            title={error}
+            style={{
+              font: `${size.xs}px ${font.body}`, color: "#C0453B",
+              overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+            }}
+          >
+            {error}
+          </span>
+        )}
+      </div>
 
       {chords.map((chord, i) => {
         const x0 = secondsToX(chord.at);

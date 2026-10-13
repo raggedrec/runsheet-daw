@@ -44,7 +44,9 @@ import {
 import { useConsoleLog } from "./useConsoleLog";
 import { collectTakes } from "./opendaw/take";
 import { saveSession, loadSession } from "./session";
-import { uploadToIdeaDrop, downloadUrl, deleteIdeaDropFile, saveFileChords } from "./runsheet";
+import { uploadToIdeaDrop, downloadUrl, deleteIdeaDropFile, saveFileChords, saveFileAnalysis, signedUrl } from "./runsheet";
+import { decodeToChannels, analyseInWorker } from "./analyse";
+import type { StoredAnalysis } from "./chords";
 import { bounceMix } from "./opendaw/bounce";
 import { encodeWav } from "./wav";
 import { Dialog } from "./Dialog";
@@ -181,6 +183,59 @@ export default function DawApp() {
     const withChords = (song?.files ?? []).filter((f) => (f.analysis?.chords.length ?? 0) > 0);
     return withChords.find((f) => f.role === "mix") ?? withChords[0] ?? null;
   }, [song]);
+
+  /*
+   * What the wand analyses: the mix, since the chord lane is mix-sourced. Falls
+   * back to the first audio file so a song with only stems can still be read.
+   */
+  const wandTarget = useMemo(() => {
+    const audio = (song?.files ?? []).filter((f) => f.storagePath && (f.role === "mix" || f.role === "stem"));
+    return audio.find((f) => f.role === "mix") ?? audio[0] ?? null;
+  }, [song]);
+
+  const [analysing, setAnalysing] = useState(false);
+  const [chordError, setChordError] = useState<string | null>(null);
+
+  /*
+   * The magic wand: fetch the file, decode it in the browser, run the ported
+   * analyser in a worker, then write the result to the shared analysis column —
+   * so a detection here shows up in Run Sheet too. The samples never leave the
+   * tab. Errors surface on the lane rather than only in the console, because a
+   * button the user pressed deserves to say why it did nothing.
+   */
+  const analyseChords = useCallback(async () => {
+    const target = wandTarget;
+    if (!target || analysing) return;
+    setAnalysing(true);
+    setChordError(null);
+    try {
+      const url = await signedUrl(target.storagePath);
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(`Couldn't fetch ${target.name} (HTTP ${res.status}).`);
+      const { channels, sampleRate } = await decodeToChannels(await res.arrayBuffer());
+      const result = await analyseInWorker(channels, sampleRate, true);
+      if (result.bpm === null && result.key === null && result.chords.length === 0) {
+        throw new Error("Couldn't get a reading — the file may be too short or too quiet.");
+      }
+      const analysis: StoredAnalysis = {
+        bpm: result.bpm,
+        key: result.key?.name ?? null,
+        tuningCents: result.tuningCents,
+        chords: result.chords,
+        chordConfidence: result.chordConfidence,
+      };
+      setSong((s) =>
+        s ? { ...s, files: s.files.map((f) => (f.id === target.id ? { ...f, analysis } : f)) } : s,
+      );
+      await saveFileAnalysis(target.id, analysis);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Analysis failed.";
+      setChordError(message);
+      console.error("chord analysis failed", err);
+    } finally {
+      setAnalysing(false);
+    }
+  }, [wandTarget, analysing]);
 
   /*
    * Rename a detected chord. Optimistic — the lane updates at once — then the
@@ -1156,22 +1211,26 @@ export default function DawApp() {
               </div>
 
               {/* The detected-chords lane, aligned over the timeline the same
-                  way (gutter-0 column, track-width spacer on the left). Only
-                  when a file has chords; the empty/analyse state comes later. */}
-              {chordSource?.analysis && (
+                  way (gutter-0 column, track-width spacer on the left). Shown
+                  whenever there's audio to analyse — empty with a wand until a
+                  file has been read. */}
+              {wandTarget && (
                 <div style={{ display: "flex", flex: "0 0 auto" }}>
                   <div style={{ width: TRACK_COLUMN, flex: "0 0 auto" }} />
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <ChordLane
-                      chords={chordSource.analysis.chords}
+                      chords={chordSource?.analysis?.chords ?? []}
                       duration={duration}
                       zoom={zoom}
                       scroll={scroll}
                       playheadSeconds={seconds}
                       skin={skin}
                       accent={accent.solid}
-                      sourceName={chordSource.name}
-                      onRename={renameChord}
+                      sourceName={chordSource?.name ?? wandTarget.name}
+                      onRename={chordSource ? renameChord : null}
+                      onAnalyse={analyseChords}
+                      analysing={analysing}
+                      error={chordError}
                     />
                   </div>
                 </div>
