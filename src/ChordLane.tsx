@@ -15,7 +15,7 @@
  * shared analysis column, so the edit lands in Run Sheet and the Writer too.
  */
 import { useEffect, useRef, useState } from "react";
-import { Wand2, Plus } from "lucide-react";
+import { Wand2, Plus, Music2 } from "lucide-react";
 import { chordIndexAt, type DetectedChord } from "./chords";
 import { font, radius, size, type Skin } from "./theme";
 
@@ -34,7 +34,7 @@ export interface ChordSource {
  * gutter is narrow, so status text lives in the strip, not here.
  */
 export function ChordLaneControls({
-  chordCount, onAnalyse, analysing, error, sources, sourceId, onPickSource, onAddAtPlayhead, skin, accent,
+  chordCount, onAnalyse, analysing, error, sources, sourceId, onPickSource, onAddAtPlayhead, onMakeMidi, skin, accent,
 }: {
   chordCount: number;
   onAnalyse: (() => void) | null;
@@ -44,6 +44,8 @@ export function ChordLaneControls({
   sourceId: string;
   onPickSource: (id: string) => void;
   onAddAtPlayhead: (() => void) | null;
+  /** Build a MIDI chord track from the chords. Null when there are none. */
+  onMakeMidi: (() => void) | null;
   skin: Skin;
   accent: string;
 }) {
@@ -84,6 +86,17 @@ export function ChordLaneControls({
       {onAddAtPlayhead && (
         <button onClick={onAddAtPlayhead} title="Add a chord at the playhead" aria-label="Add chord" style={iconBtn(accent, true)}>
           <Plus size={12} />
+        </button>
+      )}
+
+      {onMakeMidi && (
+        <button
+          onClick={onMakeMidi}
+          title="Build a MIDI chord track (block chords) from these chords"
+          aria-label="Make MIDI chord track"
+          style={iconBtn(accent, true)}
+        >
+          <Music2 size={12} />
         </button>
       )}
 

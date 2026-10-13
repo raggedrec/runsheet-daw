@@ -15,7 +15,7 @@ import { laneName, tempoOf, formatKey } from "./bundle.mjs";
 import { sanitizeLook, laneColorFor, LANE_HEIGHT, DEFAULT_LOOK } from "./bundle.mjs";
 import { encodeWav } from "./bundle.mjs";
 import { bandMagnitudeDb, eqResponseDb } from "./bundle.mjs";
-import { chordIndexAt } from "./bundle.mjs";
+import { chordIndexAt, chordToMidi } from "./bundle.mjs";
 import { classesForKey } from "./bundle.mjs";
 import {
   feedMeter, clearClip, meterFill, linearToDb, SILENT_METER, METER_FLOOR_DB, RELEASE_DB_PER_SEC, HOLD_SECS, CLIP_LINEAR,
@@ -263,6 +263,19 @@ eq("Ab major → flats", classesForKey({ tonic: 8, minor: false })[6], "Gb");
 eq("G major → sharps", classesForKey({ tonic: 7, minor: false })[1], "C#");
 eq("E minor → sharps (relative G)", classesForKey({ tonic: 4, minor: true })[6], "F#");
 eq("no key → sharps", classesForKey(null)[1], "C#");
+
+console.log("  chord label → MIDI (block voicings, rooted at C3=48)");
+const arr = (name, a, b) => ok(name, a.length === b.length && a.every((x, i) => x === b[i]), `got ${JSON.stringify(a)}, wanted ${JSON.stringify(b)}`);
+arr("major triad", chordToMidi("C"), [48, 52, 55]);
+arr("minor triad", chordToMidi("Am"), [57, 60, 64]);
+arr("dominant 7", chordToMidi("G7"), [55, 59, 62, 65]);
+arr("major 7 (flat root)", chordToMidi("Dbmaj7"), [49, 53, 56, 60]);
+arr("minor 7", chordToMidi("Em7"), [52, 55, 59, 62]);
+arr("sharp-root minor", chordToMidi("F#m"), [54, 57, 61]);
+arr("sus4", chordToMidi("Csus4"), [48, 53, 55]);
+arr("slash bass is ignored", chordToMidi("D/F#"), [50, 54, 57]);
+arr("no-chord parses to nothing", chordToMidi("N.C."), []);
+arr("flat and sharp name the same note", chordToMidi("Bb"), chordToMidi("A#"));
 
 console.log(`\n  ${pass} passed, ${fail} failed\n`);
 process.exit(fail ? 1 : 0);

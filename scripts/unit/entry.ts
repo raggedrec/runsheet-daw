@@ -14,5 +14,5 @@ export { bandMagnitudeDb, eqResponseDb } from "../../src/eqResponse";
 export {
   feedMeter, clearClip, meterFill, linearToDb, SILENT_METER, METER_FLOOR_DB, RELEASE_DB_PER_SEC, HOLD_SECS, CLIP_LINEAR,
 } from "../../src/meter";
-export { chordIndexAt } from "../../src/chords";
+export { chordIndexAt, chordToMidi } from "../../src/chords";
 export { classesForKey } from "../../src/audioAnalysis";

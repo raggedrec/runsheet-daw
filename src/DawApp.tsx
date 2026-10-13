@@ -36,6 +36,7 @@ import { StatusBar } from "./StatusBar";
 import { Browser } from "./Browser";
 import { ChordsPanel } from "./ChordsPanel";
 import { ChordLane, ChordLaneControls } from "./ChordLane";
+import { createChordTrack } from "./opendaw/midiChords";
 import { MarkerStrip } from "./MarkerStrip";
 import {
   listMarkers, subscribeMarkers, addMarker, moveMarker, renameMarker, deleteMarker, hueFor,
@@ -259,6 +260,44 @@ export default function DawApp() {
   const addChordAt = useCallback(
     (at: number) => mutateChords((ch) => [...ch, { at: Math.max(0, at), label: "N.C.", confidence: 1 }]),
     [mutateChords],
+  );
+
+  /*
+   * Build a MIDI chord track from the current chords — a Vaporisateur synth
+   * playing block triads, one region spanning the song. A new instrument track,
+   * added to the lane list the same way a record track is (peaks null, so the
+   * timeline draws an empty row; the notes play rather than draw). Needs a tempo
+   * to place notes in pulses.
+   */
+  const makeMidiChords = useCallback(
+    (songSeconds: number) => {
+      if (!session || !song) return;
+      const chords = chordFile?.analysis?.chords ?? [];
+      if (chords.length === 0) {
+        setChordError("No chords to build from — detect or add some first.");
+        return;
+      }
+      const bpm = song.bpm ? tempoOf(song.bpm) : null;
+      if (!bpm) {
+        setChordError("Set the song's tempo (BPM) to build a MIDI chord track.");
+        return;
+      }
+      try {
+        // Reach at least to the last chord, even if the lane duration is short.
+        const span = Math.max(songSeconds, chords[chords.length - 1].at + 2);
+        const unit = createChordTrack(session.project, chords, bpm, span, "Chords (MIDI)");
+        setLanes((current) => [
+          ...current,
+          { name: "Chords (MIDI)", fileId: `midi:${crypto.randomUUID()}`, seconds: span, peaks: null, unit },
+        ]);
+        setChordError(null);
+        setMixRevision((n) => n + 1); // let the mixer pick up the new strip
+      } catch (err) {
+        setChordError(err instanceof Error ? err.message : "Couldn't build the MIDI track.");
+        console.error("midi chord track failed", err);
+      }
+    },
+    [session, song, chordFile],
   );
 
   /*
@@ -1272,6 +1311,9 @@ export default function DawApp() {
                       sourceId={chordFile.id}
                       onPickSource={pickChordSource}
                       onAddAtPlayhead={() => addChordAt(seconds)}
+                      onMakeMidi={
+                        (chordFile.analysis?.chords.length ?? 0) > 0 ? () => makeMidiChords(duration) : null
+                      }
                       skin={skin}
                       accent={accent.solid}
                     />

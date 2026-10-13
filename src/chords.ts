@@ -36,6 +36,43 @@ const NOTE_PC: Record<string, number> = {
 };
 
 /**
+ * Semitone intervals above the root for a chord quality (the suffix after the
+ * note name). Block triads and common sevenths/sixths; anything unrecognised
+ * falls back to a major triad. Case matters only for maj7 vs m7 — a capital M
+ * or "maj" means major, a lowercase m means minor.
+ */
+function qualityIntervals(qRaw: string): number[] {
+  const q = qRaw.replace(/[()\s]/g, "");
+  if (/^(m7b5|ø|Ø)/.test(q)) return [0, 3, 6, 10];
+  if (/^(dim7|o7|°7)/i.test(q)) return [0, 3, 6, 9];
+  if (/^(dim|°)/i.test(q)) return [0, 3, 6];
+  if (/^(aug|\+)/i.test(q)) return [0, 4, 8];
+  if (/^sus2/i.test(q)) return [0, 2, 7];
+  if (/^sus/i.test(q)) return [0, 5, 7];
+
+  // Lowercase m (not "maj") or min or - is minor; capital M is major.
+  const minor = /^(m(?!aj)|min|-)/.test(q);
+  if (/maj7|ma7|M7|Δ|△/.test(q)) return minor ? [0, 3, 7, 11] : [0, 4, 7, 11];
+  if (/7/.test(q)) return minor ? [0, 3, 7, 10] : [0, 4, 7, 10];
+  if (/6/.test(q)) return minor ? [0, 3, 7, 9] : [0, 4, 7, 9];
+  return minor ? [0, 3, 7] : [0, 4, 7];
+}
+
+/**
+ * A chord label ("D", "F#m", "Bbmaj7", "D/F#") to MIDI note numbers — block
+ * voicing, root position, rooted around C3. A slash bass is ignored (the chord
+ * is what a reference pad wants); an unparseable label (e.g. "N.C.") gives no
+ * notes. Pure, so it is unit-tested rather than discovered on a deployed synth.
+ */
+export function chordToMidi(label: string, rootBase = 48): number[] {
+  const m = /^([A-Ga-g])([#b]?)(.*)$/.exec(label.trim());
+  if (!m) return [];
+  const pc = NOTE_PC[m[1].toUpperCase() + (m[2] ?? "")];
+  if (pc === undefined) return [];
+  return qualityIntervals(m[3].split("/")[0]).map((iv) => rootBase + pc + iv);
+}
+
+/**
  * Parse Run Sheet's free-text key (e.g. "Db", "Bbm", "F# minor") into the
  * analyser's key hint. Passing it biases detection toward that key's chords —
  * without it the read drifts, which is most of why an unguided wand disagrees
