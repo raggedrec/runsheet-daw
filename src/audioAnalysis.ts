@@ -58,6 +58,21 @@ const HARMONY_FRAME = 8192;
 const HARMONY_HOP = 2048;
 
 export const PITCH_CLASSES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
+const FLAT_CLASSES = ["C", "Db", "D", "Eb", "E", "F", "Gb", "G", "Ab", "A", "Bb", "B"];
+
+/**
+ * Which accidentals to spell chords with, from the key. A flat key wants flats
+ * (Db, not C#; Bbm, not A#m) or a chart written in flats won't match. Decided by
+ * the relative major so a minor key spells like its signature: the unambiguous
+ * flat majors are Db, Eb, F, Ab, Bb — everything else (and no key) takes sharps,
+ * the previous behaviour.
+ */
+const FLAT_MAJORS = new Set([1, 3, 5, 8, 10]);
+export function classesForKey(key?: { tonic: number; minor: boolean } | null): ReadonlyArray<string> {
+  if (!key) return PITCH_CLASSES;
+  const major = key.minor ? (key.tonic + 3) % 12 : key.tonic;
+  return FLAT_MAJORS.has(major) ? FLAT_CLASSES : PITCH_CLASSES;
+}
 
 // ---------------------------------------------------------------- preparation
 
@@ -508,6 +523,9 @@ function matchChord(
 
   const vocab = new Set(hints.vocabulary ?? []);
   const diatonic = hints.key ? diatonicRoots(hints.key) : null;
+  // Spell the output in the key's accidentals; vocab matching stays on
+  // PITCH_CLASSES, the spelling a vocabulary is normalised to.
+  const classes = classesForKey(hints.key);
 
   const scoreOf = (root: number, suffix: string, intervals: number[]): number => {
     const template = Array.from({ length: 12 }, () => 0);
@@ -562,7 +580,7 @@ function matchChord(
   }
 
   return {
-    label: PITCH_CLASSES[best.root] + suffix,
+    label: classes[best.root] + suffix,
     confidence: Math.round(Math.max(0, Math.min(1, (best.score - runnerUp) * 3)) * 100) / 100,
   };
 }

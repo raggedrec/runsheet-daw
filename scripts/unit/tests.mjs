@@ -16,6 +16,7 @@ import { sanitizeLook, laneColorFor, LANE_HEIGHT, DEFAULT_LOOK } from "./bundle.
 import { encodeWav } from "./bundle.mjs";
 import { bandMagnitudeDb, eqResponseDb } from "./bundle.mjs";
 import { chordIndexAt } from "./bundle.mjs";
+import { classesForKey } from "./bundle.mjs";
 import {
   feedMeter, clearClip, meterFill, linearToDb, SILENT_METER, METER_FLOOR_DB, RELEASE_DB_PER_SEC, HOLD_SECS, CLIP_LINEAR,
 } from "./bundle.mjs";
@@ -253,6 +254,15 @@ console.log("  chord index at playhead (shared with Run Sheet)");
   eq("in the last, open-ended", chordIndexAt(ch, 999), 2);
   eq("empty is -1", chordIndexAt([], 5), -1);
 }
+
+console.log("  chord spelling follows the key");
+// pc 1 = Db / C#. A flat key spells it Db, a sharp key C#, no key C#.
+eq("Db major → flats", classesForKey({ tonic: 1, minor: false })[1], "Db");
+eq("Bb minor → flats (relative Db)", classesForKey({ tonic: 10, minor: true })[10], "Bb");
+eq("Ab major → flats", classesForKey({ tonic: 8, minor: false })[6], "Gb");
+eq("G major → sharps", classesForKey({ tonic: 7, minor: false })[1], "C#");
+eq("E minor → sharps (relative G)", classesForKey({ tonic: 4, minor: true })[6], "F#");
+eq("no key → sharps", classesForKey(null)[1], "C#");
 
 console.log(`\n  ${pass} passed, ${fail} failed\n`);
 process.exit(fail ? 1 : 0);
