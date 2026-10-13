@@ -37,6 +37,7 @@ import { Browser } from "./Browser";
 import { ChordsPanel } from "./ChordsPanel";
 import { ChordLane, ChordLaneControls } from "./ChordLane";
 import { createChordTrack } from "./opendaw/midiChords";
+import { chordsToSmf } from "./midiFile";
 import { MarkerStrip } from "./MarkerStrip";
 import {
   listMarkers, subscribeMarkers, addMarker, moveMarker, renameMarker, deleteMarker, hueFor,
@@ -298,6 +299,47 @@ export default function DawApp() {
       }
     },
     [session, song, chordFile],
+  );
+
+  /*
+   * Export the chords as a .mid file — the same progression as the in-DAW track,
+   * built straight from the chord data (no openDAW needed), so it opens in any
+   * DAW or notation app. A download of the user's own generated data.
+   */
+  const exportMidiChords = useCallback(
+    (songSeconds: number) => {
+      if (!song) return;
+      const chords = chordFile?.analysis?.chords ?? [];
+      if (chords.length === 0) {
+        setChordError("No chords to export — detect or add some first.");
+        return;
+      }
+      const bpm = song.bpm ? tempoOf(song.bpm) : null;
+      if (!bpm) {
+        setChordError("Set the song's tempo (BPM) to export MIDI.");
+        return;
+      }
+      try {
+        const span = Math.max(songSeconds, chords[chords.length - 1].at + 2);
+        // Cast: cross-origin isolation widens Uint8Array's buffer to possibly-
+        // shared, which the Blob lib types reject though the bytes are fine.
+        const bytes = chordsToSmf(chords, bpm, span) as unknown as BlobPart;
+        const blob = new Blob([bytes], { type: "audio/midi" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `${song.name} Chords.mid`;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(url);
+        setChordError(null);
+      } catch (err) {
+        setChordError(err instanceof Error ? err.message : "Couldn't export MIDI.");
+        console.error("midi export failed", err);
+      }
+    },
+    [song, chordFile],
   );
 
   /*
@@ -1313,6 +1355,9 @@ export default function DawApp() {
                       onAddAtPlayhead={() => addChordAt(seconds)}
                       onMakeMidi={
                         (chordFile.analysis?.chords.length ?? 0) > 0 ? () => makeMidiChords(duration) : null
+                      }
+                      onExportMidi={
+                        (chordFile.analysis?.chords.length ?? 0) > 0 ? () => exportMidiChords(duration) : null
                       }
                       skin={skin}
                       accent={accent.solid}

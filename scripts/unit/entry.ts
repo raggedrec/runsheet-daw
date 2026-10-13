@@ -15,4 +15,5 @@ export {
   feedMeter, clearClip, meterFill, linearToDb, SILENT_METER, METER_FLOOR_DB, RELEASE_DB_PER_SEC, HOLD_SECS, CLIP_LINEAR,
 } from "../../src/meter";
 export { chordIndexAt, chordToMidi } from "../../src/chords";
+export { chordsToSmf } from "../../src/midiFile";
 export { classesForKey } from "../../src/audioAnalysis";

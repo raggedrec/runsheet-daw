@@ -15,7 +15,7 @@
  * shared analysis column, so the edit lands in Run Sheet and the Writer too.
  */
 import { useEffect, useRef, useState } from "react";
-import { Wand2, Plus, Music2 } from "lucide-react";
+import { Wand2, Plus, Music2, Download } from "lucide-react";
 import { chordIndexAt, type DetectedChord } from "./chords";
 import { font, radius, size, type Skin } from "./theme";
 
@@ -34,7 +34,7 @@ export interface ChordSource {
  * gutter is narrow, so status text lives in the strip, not here.
  */
 export function ChordLaneControls({
-  chordCount, onAnalyse, analysing, error, sources, sourceId, onPickSource, onAddAtPlayhead, onMakeMidi, skin, accent,
+  chordCount, onAnalyse, analysing, error, sources, sourceId, onPickSource, onAddAtPlayhead, onMakeMidi, onExportMidi, skin, accent,
 }: {
   chordCount: number;
   onAnalyse: (() => void) | null;
@@ -46,11 +46,13 @@ export function ChordLaneControls({
   onAddAtPlayhead: (() => void) | null;
   /** Build a MIDI chord track from the chords. Null when there are none. */
   onMakeMidi: (() => void) | null;
+  /** Download the chords as a .mid file. Null when there are none. */
+  onExportMidi: (() => void) | null;
   skin: Skin;
   accent: string;
 }) {
   const iconBtn = (colour: string, enabled: boolean): React.CSSProperties => ({
-    display: "grid", placeItems: "center", flex: "0 0 auto", width: 22, height: 20, padding: 0,
+    display: "grid", placeItems: "center", flex: "0 0 auto", width: 19, height: 20, padding: 0,
     background: "transparent", color: enabled ? colour : skin.fgSubtle,
     border: `1px solid ${enabled ? colour : skin.border}`, borderRadius: radius.sm,
     cursor: enabled ? "pointer" : "default",
@@ -59,8 +61,8 @@ export function ChordLaneControls({
   return (
     <div
       style={{
-        height: CHORD_LANE_HEIGHT, display: "flex", alignItems: "center", gap: 4,
-        padding: "0 8px", boxSizing: "border-box", overflow: "hidden",
+        height: CHORD_LANE_HEIGHT, display: "flex", alignItems: "center", gap: 3,
+        padding: "0 6px", boxSizing: "border-box", overflow: "hidden",
         borderBottom: `1px solid ${skin.laneLine}`, background: skin.surfaceSunken,
       }}
     >
@@ -97,6 +99,17 @@ export function ChordLaneControls({
           style={iconBtn(accent, true)}
         >
           <Music2 size={12} />
+        </button>
+      )}
+
+      {onExportMidi && (
+        <button
+          onClick={onExportMidi}
+          title="Download these chords as a .mid file"
+          aria-label="Export chords as MIDI"
+          style={iconBtn(accent, true)}
+        >
+          <Download size={12} />
         </button>
       )}
 

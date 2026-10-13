@@ -16,6 +16,7 @@ import { sanitizeLook, laneColorFor, LANE_HEIGHT, DEFAULT_LOOK } from "./bundle.
 import { encodeWav } from "./bundle.mjs";
 import { bandMagnitudeDb, eqResponseDb } from "./bundle.mjs";
 import { chordIndexAt, chordToMidi } from "./bundle.mjs";
+import { chordsToSmf } from "./bundle.mjs";
 import { classesForKey } from "./bundle.mjs";
 import {
   feedMeter, clearClip, meterFill, linearToDb, SILENT_METER, METER_FLOOR_DB, RELEASE_DB_PER_SEC, HOLD_SECS, CLIP_LINEAR,
@@ -276,6 +277,22 @@ arr("sus4", chordToMidi("Csus4"), [48, 53, 55]);
 arr("slash bass is ignored", chordToMidi("D/F#"), [50, 54, 57]);
 arr("no-chord parses to nothing", chordToMidi("N.C."), []);
 arr("flat and sharp name the same note", chordToMidi("Bb"), chordToMidi("A#"));
+
+console.log("  chord progression → Standard MIDI File");
+{
+  const smf = chordsToSmf([{ at: 0, label: "C", confidence: 1 }, { at: 1, label: "Am", confidence: 1 }], 120, 2);
+  // Header: "MThd", length 6, format 0, 1 track, division 960.
+  arr("MThd header", Array.from(smf.slice(0, 14)), [0x4d, 0x54, 0x68, 0x64, 0, 0, 0, 6, 0, 0, 0, 1, (960 >> 8) & 255, 960 & 255]);
+  // A track chunk follows.
+  arr("MTrk chunk", Array.from(smf.slice(14, 18)), [0x4d, 0x54, 0x72, 0x6b]);
+  // Two triads = six note-ons (0x90) and six note-offs (0x80).
+  let ons = 0, offs = 0;
+  for (const b of smf) { if (b === 0x90) ons += 1; if (b === 0x80) offs += 1; }
+  eq("six note-ons (two triads)", ons, 6);
+  eq("six note-offs", offs, 6);
+  // Ends with end-of-track meta FF 2F 00.
+  arr("end of track", Array.from(smf.slice(-3)), [0xff, 0x2f, 0x00]);
+}
 
 console.log(`\n  ${pass} passed, ${fail} failed\n`);
 process.exit(fail ? 1 : 0);
