@@ -38,6 +38,9 @@ export function createChordTrack(
     // A synth instrument gives a Notes track (unlike Tape, which is audio).
     const { audioUnitBox, trackBox } = project.api.createInstrument(InstrumentFactories.Vaporisateur, { name });
     unit = audioUnitBox;
+    // A reference pad, not a lead — three or four stacked notes through the
+    // synth land hot at unity, so bring it in low. Its mixer strip tunes it.
+    audioUnitBox.volume.setValue(-12);
 
     const collection = NoteEventCollectionBox.create(boxGraph, UUID.generate());
     NoteRegionBox.create(boxGraph, UUID.generate(), (box) => {

@@ -263,6 +263,12 @@ export default function DawApp() {
       mutateChords((ch) => ch.map((c, i) => (i === index ? { ...c, at: Math.max(0, seconds) } : c))),
     [mutateChords],
   );
+  // Shift every chord by the same delta — for a constant lead-in offset, drag
+  // the empty chord strip and the whole progression slides, its spacing intact.
+  const shiftAllChords = useCallback(
+    (delta: number) => mutateChords((ch) => ch.map((c) => ({ ...c, at: Math.max(0, c.at + delta) }))),
+    [mutateChords],
+  );
   // Clear every chord. Confirmed because it writes [] to the shared column, so
   // it also clears them in Run Sheet and the Writer — not just this lane.
   const clearChords = useCallback(() => {
@@ -1404,6 +1410,7 @@ export default function DawApp() {
                       onRename={renameChord}
                       onDelete={deleteChord}
                       onMove={moveChord}
+                      onShiftAll={shiftAllChords}
                       bpm={song?.bpm ? tempoOf(song.bpm) : null}
                       analysing={analysing}
                     />

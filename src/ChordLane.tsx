@@ -178,6 +178,8 @@ export interface ChordLaneProps {
   onDelete: ((index: number) => void) | null;
   /** Move chord `index` to a new time (drag). Null disables moving. */
   onMove: ((index: number, seconds: number) => void) | null;
+  /** Shift every chord by `delta` seconds (drag the empty strip). Null disables. */
+  onShiftAll: ((delta: number) => void) | null;
   /** Tempo, for snapping drags to the beat. Null = no snap. */
   bpm: number | null;
   /** The wand is running — shown in the empty strip. */
@@ -185,13 +187,15 @@ export interface ChordLaneProps {
 }
 
 export function ChordLane({
-  chords, duration, zoom, scroll, playheadSeconds, skin, accent, onRename, onDelete, onMove, bpm, analysing,
+  chords, duration, zoom, scroll, playheadSeconds, skin, accent, onRename, onDelete, onMove, onShiftAll, bpm, analysing,
 }: ChordLaneProps) {
   const ref = useRef<HTMLDivElement | null>(null);
   const [width, setWidth] = useState(0);
   const [editing, setEditing] = useState<number | null>(null);
   // Live preview while dragging a block, so it tracks the pointer before commit.
   const [drag, setDrag] = useState<{ index: number; at: number } | null>(null);
+  // Live preview while dragging the whole strip — a seconds delta on every block.
+  const [shift, setShift] = useState<number | null>(null);
 
   useEffect(() => {
     const el = ref.current;
@@ -238,16 +242,52 @@ export function ChordLane({
     window.addEventListener("pointerup", up);
   };
 
+  // Drag empty strip to slide every chord by the same delta — the fix for a
+  // constant lead-in offset, where the progression is right but starts late.
+  // Snaps the delta to whole beats (so on-grid chords stay on-grid) unless Alt.
+  const startShiftAll = (e: React.PointerEvent) => {
+    if (!onShiftAll || chords.length === 0) return;
+    const startX = e.clientX;
+    let moved = false;
+    const delta = (clientX: number, alt: boolean) => {
+      const d = visible > 0 ? ((clientX - startX) / Math.max(1, width)) * visible : 0;
+      if (alt || !bpm) return d;
+      const beat = 60 / bpm;
+      return Math.round(d / beat) * beat;
+    };
+    const move = (ev: PointerEvent) => {
+      if (!moved && Math.abs(ev.clientX - startX) < 3) return;
+      moved = true;
+      setShift(delta(ev.clientX, ev.altKey));
+    };
+    const up = (ev: PointerEvent) => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      if (moved) {
+        const d = delta(ev.clientX, ev.altKey);
+        if (d !== 0) onShiftAll(d);
+      }
+      setShift(null);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+  };
+
   const current = chordIndexAt(chords, playheadSeconds);
 
   return (
     <div
       ref={ref}
+      // A press on the strip itself (not a block or handle, which stop the event)
+      // grabs the whole progression to slide it.
+      onPointerDown={(e) => { if (e.target === e.currentTarget) startShiftAll(e); }}
+      title={onShiftAll && chords.length > 0 ? "Drag an empty part of the strip to shift every chord (⌥ for fine)" : undefined}
       style={{
         position: "relative", height: CHORD_LANE_HEIGHT, flex: "0 0 auto",
         borderBottom: `1px solid ${skin.laneLine}`,
         background: skin.surfaceSunken, overflow: "hidden",
         userSelect: "none", WebkitUserSelect: "none",
+        cursor: onShiftAll && chords.length > 0 ? "ew-resize" : "default",
       }}
     >
       {/* Empty lane: say how to fill it rather than looking broken. */}
@@ -265,10 +305,12 @@ export function ChordLane({
       )}
 
       {chords.map((chord, i) => {
-        // While dragging this block, follow the pointer; others stay put.
-        const at = drag?.index === i ? drag.at : chord.at;
+        // While shifting the strip, every block slides; else a single drag moves
+        // just its own block.
+        const at = shift !== null ? Math.max(0, chord.at + shift) : drag?.index === i ? drag.at : chord.at;
         const x0 = secondsToX(at);
-        const next = i + 1 < chords.length ? chords[i + 1].at : duration;
+        const nextRaw = i + 1 < chords.length ? chords[i + 1].at : duration;
+        const next = shift !== null && i + 1 < chords.length ? Math.max(0, nextRaw + shift) : nextRaw;
         const x1 = secondsToX(next);
         const w = Math.max(2, x1 - x0);
         // Off-screen either side — skip rather than paint a zero-strip.
@@ -342,7 +384,7 @@ export function ChordLane({
       {onMove &&
         chords.map((chord, i) => {
           if (i === 0) return null;
-          const at = drag?.index === i ? drag.at : chord.at;
+          const at = shift !== null ? Math.max(0, chord.at + shift) : drag?.index === i ? drag.at : chord.at;
           const x = secondsToX(at);
           if (x < -3 || x > width + 3) return null;
           return (
