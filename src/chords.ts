@@ -104,3 +104,16 @@ export function chordIndexAt(chords: ReadonlyArray<DetectedChord>, seconds: numb
   }
   return lo;
 }
+
+/**
+ * Copy a run of chords so the first lands at `targetAt`, spacing preserved.
+ *
+ * The whole point of copy/paste here: a verse's chords pasted at the chorus keep
+ * their internal timing, just slid to start at the playhead. `picked` is in
+ * absolute song time; the result is too, rebased to `targetAt`.
+ */
+export function rebaseChords(picked: ReadonlyArray<DetectedChord>, targetAt: number): DetectedChord[] {
+  if (picked.length === 0) return [];
+  const t0 = picked[0].at;
+  return picked.map((c) => ({ at: Math.max(0, targetAt + (c.at - t0)), label: c.label, confidence: c.confidence }));
+}

@@ -49,7 +49,7 @@ import { collectTakes } from "./opendaw/take";
 import { saveSession, loadSession } from "./session";
 import { uploadToIdeaDrop, downloadUrl, deleteIdeaDropFile, saveFileChords, saveFileAnalysis, signedUrl } from "./runsheet";
 import { decodeToChannels, analyseInWorker } from "./analyse";
-import { parseKeyHint, chordToMidi, type StoredAnalysis, type DetectedChord } from "./chords";
+import { parseKeyHint, chordToMidi, rebaseChords, type StoredAnalysis, type DetectedChord } from "./chords";
 import { bounceMix } from "./opendaw/bounce";
 import { encodeWav } from "./wav";
 import { Dialog } from "./Dialog";
@@ -281,6 +281,78 @@ export default function DawApp() {
   const addChordAt = useCallback(
     (at: number) => mutateChords((ch) => [...ch, { at: Math.max(0, at), label: "N.C.", confidence: 1 }]),
     [mutateChords],
+  );
+
+  /*
+   * Selecting and repeating chords — the tools for laying out sections.
+   *
+   * Selection is a set of indices into the current chord array. It's by index,
+   * not identity (a chord has no id), so any edit that re-sorts clears it rather
+   * than risk pointing at the wrong chords. The clipboard holds the copied
+   * chords in absolute time; paste rebases them to the playhead, spacing intact.
+   */
+  const [chordSel, setChordSel] = useState<ReadonlySet<number>>(new Set());
+  const [chordClip, setChordClip] = useState<ReadonlyArray<DetectedChord>>([]);
+
+  // Drop a selection that no longer matches the chords (wand re-run, source swap).
+  useEffect(() => {
+    const n = chordFile?.analysis?.chords.length ?? 0;
+    setChordSel((prev) => {
+      for (const i of prev) if (i >= n) return new Set();
+      return prev;
+    });
+  }, [chordFile]);
+
+  const pickedChords = useCallback((): DetectedChord[] => {
+    const chords = chordFile?.analysis?.chords ?? [];
+    return [...chordSel].sort((a, b) => a - b).map((i) => chords[i]).filter(Boolean);
+  }, [chordFile, chordSel]);
+
+  const copySelection = useCallback(() => {
+    const picked = pickedChords();
+    if (picked.length > 0) setChordClip(picked);
+  }, [pickedChords]);
+
+  const pasteChordsAt = useCallback(
+    (at: number) => {
+      if (chordClip.length === 0) return;
+      mutateChords((ch) => [...ch, ...rebaseChords(chordClip, at)]);
+      setChordSel(new Set());
+    },
+    [chordClip, mutateChords],
+  );
+
+  const deleteSelection = useCallback(() => {
+    if (chordSel.size === 0) return;
+    mutateChords((ch) => ch.filter((_, i) => !chordSel.has(i)));
+    setChordSel(new Set());
+  }, [chordSel, mutateChords]);
+
+  // Repeat the selection immediately after itself — a copy starting where the
+  // last selected chord's span ends, so a bar or a phrase doubles in one move.
+  const duplicateSelection = useCallback(() => {
+    const chords = chordFile?.analysis?.chords ?? [];
+    const idx = [...chordSel].sort((a, b) => a - b);
+    const picked = idx.map((i) => chords[i]).filter(Boolean);
+    if (picked.length === 0) return;
+    const bpmNum = song?.bpm ? tempoOf(song.bpm) : null;
+    const beat = bpmNum ? 60 / bpmNum : 0.5;
+    const lastIdx = idx[idx.length - 1];
+    const lastAt = picked[picked.length - 1].at;
+    const lastDur = lastIdx + 1 < chords.length ? chords[lastIdx + 1].at - lastAt : beat * 4;
+    mutateChords((ch) => [...ch, ...rebaseChords(picked, lastAt + lastDur)]);
+    setChordSel(new Set());
+  }, [chordFile, chordSel, song, mutateChords]);
+
+  // Move every selected chord by the same delta (drag a selected block). Clears
+  // after, because the re-sort can renumber what the indices point at.
+  const moveSelection = useCallback(
+    (delta: number) => {
+      if (chordSel.size === 0 || delta === 0) return;
+      mutateChords((ch) => ch.map((c, i) => (chordSel.has(i) ? { ...c, at: Math.max(0, c.at + delta) } : c)));
+      setChordSel(new Set());
+    },
+    [chordSel, mutateChords],
   );
 
   /*
@@ -1085,6 +1157,28 @@ export default function DawApp() {
   }, [stage.name, transport, isRecording, record, stopRecord, stopAll, onAddMarker, lanes, look, setLook]);
 
   /*
+   * Chord-selection keys, kept apart from the transport keys so neither can
+   * swallow the other. Delete removes the selection; Escape drops it. Copy and
+   * paste stay on the ⋯ menu rather than hijacking the OS clipboard app-wide.
+   */
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement | null;
+      if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT" || t.isContentEditable)) return;
+      if (e.key === "Escape" && chordSel.size > 0) {
+        setChordSel(new Set());
+        return;
+      }
+      if ((e.key === "Delete" || e.key === "Backspace") && chordSel.size > 0) {
+        e.preventDefault();
+        deleteSelection();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [chordSel, deleteSelection]);
+
+  /*
    * Track and file management: remove a lane, download a take, delete a file.
    *
    * The two that lose something — removing a lane, deleting a file — go through
@@ -1417,6 +1511,12 @@ export default function DawApp() {
                         (chordFile.analysis?.chords.length ?? 0) > 0 ? () => exportMidiChords(duration) : null
                       }
                       onClearChords={(chordFile.analysis?.chords.length ?? 0) > 0 ? clearChords : null}
+                      selectionCount={chordSel.size}
+                      clipboardCount={chordClip.length}
+                      onCopy={copySelection}
+                      onPaste={() => pasteChordsAt(seconds)}
+                      onDuplicate={duplicateSelection}
+                      onDeleteSelection={deleteSelection}
                       skin={skin}
                       accent={accent.solid}
                     />
@@ -1434,6 +1534,9 @@ export default function DawApp() {
                       onDelete={deleteChord}
                       onMove={moveChord}
                       onShiftAll={shiftAllChords}
+                      selection={chordSel}
+                      onSelect={setChordSel}
+                      onMoveSelection={moveSelection}
                       bpm={song?.bpm ? tempoOf(song.bpm) : null}
                       analysing={analysing}
                     />

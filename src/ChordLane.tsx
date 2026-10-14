@@ -35,7 +35,8 @@ export interface ChordSource {
  * gutter is narrow, so status text lives in the strip, not here.
  */
 export function ChordLaneControls({
-  chordCount, onAnalyse, analysing, error, sources, sourceId, onPickSource, onAddAtPlayhead, onClearChords, onMakeMidi, onExportMidi, skin, accent,
+  chordCount, onAnalyse, analysing, error, sources, sourceId, onPickSource, onAddAtPlayhead, onClearChords, onMakeMidi, onExportMidi,
+  selectionCount, clipboardCount, onCopy, onPaste, onDuplicate, onDeleteSelection, skin, accent,
 }: {
   chordCount: number;
   onAnalyse: (() => void) | null;
@@ -51,6 +52,13 @@ export function ChordLaneControls({
   onMakeMidi: (() => void) | null;
   /** Download the chords as a .mid file. Null when there are none. */
   onExportMidi: (() => void) | null;
+  /** How many chords are selected, and how many sit on the clipboard. */
+  selectionCount: number;
+  clipboardCount: number;
+  onCopy: () => void;
+  onPaste: () => void;
+  onDuplicate: () => void;
+  onDeleteSelection: () => void;
   skin: Skin;
   accent: string;
 }) {
@@ -151,6 +159,13 @@ export function ChordLaneControls({
               boxShadow: "0 8px 24px rgba(0,0,0,.4)", padding: 4, display: "flex", flexDirection: "column",
             }}
           >
+            {/* Selection tools — for laying out sections (copy a verse to the
+                chorus). Disabled until something's selected / on the clipboard. */}
+            {item(selectionCount > 0 ? `Copy ${selectionCount} chord${selectionCount === 1 ? "" : "s"}` : "Copy selection", selectionCount > 0 ? onCopy : null)}
+            {item(clipboardCount > 0 ? `Paste ${clipboardCount} at playhead` : "Paste at playhead", clipboardCount > 0 ? onPaste : null)}
+            {item(selectionCount > 0 ? `Duplicate ${selectionCount}` : "Duplicate selection", selectionCount > 0 ? onDuplicate : null)}
+            {item(selectionCount > 0 ? `Delete ${selectionCount} selected` : "Delete selection", selectionCount > 0 ? onDeleteSelection : null, true)}
+            <div style={{ height: 1, background: skin.border, margin: "3px 4px" }} />
             {item("Make MIDI chord track", onMakeMidi)}
             {item("Export chords as .mid", onExportMidi)}
             <div style={{ height: 1, background: skin.border, margin: "3px 4px" }} />
@@ -180,6 +195,12 @@ export interface ChordLaneProps {
   onMove: ((index: number, seconds: number) => void) | null;
   /** Shift every chord by `delta` seconds (drag the empty strip). Null disables. */
   onShiftAll: ((delta: number) => void) | null;
+  /** Indices of the selected chords. */
+  selection: ReadonlySet<number>;
+  /** Replace the selection. Null disables selecting. */
+  onSelect: ((selection: ReadonlySet<number>) => void) | null;
+  /** Move every selected chord by `delta` seconds (drag a selected block). */
+  onMoveSelection: ((delta: number) => void) | null;
   /** Tempo, for snapping drags to the beat. Null = no snap. */
   bpm: number | null;
   /** The wand is running — shown in the empty strip. */
@@ -187,7 +208,7 @@ export interface ChordLaneProps {
 }
 
 export function ChordLane({
-  chords, duration, zoom, scroll, playheadSeconds, skin, accent, onRename, onDelete, onMove, onShiftAll, bpm, analysing,
+  chords, duration, zoom, scroll, playheadSeconds, skin, accent, onRename, onDelete, onMove, onShiftAll, selection, onSelect, onMoveSelection, bpm, analysing,
 }: ChordLaneProps) {
   const ref = useRef<HTMLDivElement | null>(null);
   const [width, setWidth] = useState(0);
@@ -196,6 +217,10 @@ export function ChordLane({
   const [drag, setDrag] = useState<{ index: number; at: number } | null>(null);
   // Live preview while dragging the whole strip — a seconds delta on every block.
   const [shift, setShift] = useState<number | null>(null);
+  // Live preview while dragging a multi-chord selection — a delta on the selected.
+  const [groupDelta, setGroupDelta] = useState<number | null>(null);
+  // Anchor for shift-click range selection (the last plainly-clicked chord).
+  const anchor = useRef<number | null>(null);
 
   useEffect(() => {
     const el = ref.current;
@@ -212,14 +237,37 @@ export function ChordLane({
   const secondsToX = (s: number) => (visible > 0 ? ((s - from) / visible) * width : 0);
   const xToSeconds = (x: number) => Math.max(0, from + (width > 0 ? (x / width) * visible : 0));
 
-  // Drag to set where a chord lands — a block body moves that chord, a boundary
-  // handle moves the chord whose start it is (so it adjusts the previous block's
-  // end). Snaps to the beat unless Alt is held. A small threshold keeps a plain
-  // click (for rename/delete) from registering as a move.
-  const startMove = (index: number) => (e: React.PointerEvent) => {
+  // Click a chord to select it; shift-click for a contiguous range (a whole
+  // verse), ⌘/Ctrl-click to toggle one. The anchor is the last plain click.
+  const selectAt = (index: number, ev: { shiftKey: boolean; metaKey: boolean; ctrlKey: boolean }) => {
+    if (!onSelect) return;
+    if (ev.shiftKey && anchor.current !== null) {
+      const lo = Math.min(anchor.current, index);
+      const hi = Math.max(anchor.current, index);
+      const next = new Set<number>();
+      for (let k = lo; k <= hi; k++) next.add(k);
+      onSelect(next);
+    } else if (ev.metaKey || ev.ctrlKey) {
+      const next = new Set(selection);
+      if (next.has(index)) next.delete(index);
+      else next.add(index);
+      onSelect(next);
+      anchor.current = index;
+    } else {
+      onSelect(new Set([index]));
+      anchor.current = index;
+    }
+  };
+
+  // Press a block: a move if the pointer travels, a selection click if it
+  // doesn't. A block already in a multi-selection drags the whole selection
+  // together; otherwise it's a single move. Boundary handles always move singly.
+  // Snaps to the beat unless Alt is held.
+  const startMove = (index: number, boundary = false) => (e: React.PointerEvent) => {
     if (!onMove || index < 0 || index >= chords.length) return;
     e.stopPropagation();
     e.preventDefault(); // stop the drag from selecting the chord labels
+    const group = !boundary && selection.has(index) && selection.size > 1 && !!onMoveSelection;
     const rect = ref.current?.getBoundingClientRect();
     const startX = e.clientX;
     let moved = false;
@@ -227,16 +275,30 @@ export function ChordLane({
       const x = Math.max(0, Math.min(width, clientX - (rect?.left ?? 0)));
       return snapToBeat(xToSeconds(x), bpm, alt);
     };
+    // For a group move the quantity is a delta; snap it to whole beats.
+    const delta = (clientX: number, alt: boolean) => {
+      const d = visible > 0 ? ((clientX - startX) / Math.max(1, width)) * visible : 0;
+      if (alt || !bpm) return d;
+      const beat = 60 / bpm;
+      return Math.round(d / beat) * beat;
+    };
     const move = (ev: PointerEvent) => {
       if (!moved && Math.abs(ev.clientX - startX) < 3) return;
       moved = true;
-      setDrag({ index, at: at(ev.clientX, ev.altKey) });
+      if (group) setGroupDelta(delta(ev.clientX, ev.altKey));
+      else setDrag({ index, at: at(ev.clientX, ev.altKey) });
     };
     const up = (ev: PointerEvent) => {
       window.removeEventListener("pointermove", move);
       window.removeEventListener("pointerup", up);
-      if (moved) onMove(index, at(ev.clientX, ev.altKey));
+      if (moved) {
+        if (group) onMoveSelection!(delta(ev.clientX, ev.altKey));
+        else onMove(index, at(ev.clientX, ev.altKey));
+      } else if (!boundary) {
+        selectAt(index, ev);
+      }
       setDrag(null);
+      setGroupDelta(null);
     };
     window.addEventListener("pointermove", move);
     window.addEventListener("pointerup", up);
@@ -266,6 +328,9 @@ export function ChordLane({
       if (moved) {
         const d = delta(ev.clientX, ev.altKey);
         if (d !== 0) onShiftAll(d);
+      } else if (selection.size > 0) {
+        // A click on empty strip (no drag) clears the selection.
+        onSelect?.(new Set());
       }
       setShift(null);
     };
@@ -305,12 +370,19 @@ export function ChordLane({
       )}
 
       {chords.map((chord, i) => {
-        // While shifting the strip, every block slides; else a single drag moves
-        // just its own block.
-        const at = shift !== null ? Math.max(0, chord.at + shift) : drag?.index === i ? drag.at : chord.at;
+        // While shifting the strip, every block slides; while group-dragging, the
+        // selected ones slide; else a single drag moves just its own block.
+        const at =
+          shift !== null ? Math.max(0, chord.at + shift)
+          : groupDelta !== null && selection.has(i) ? Math.max(0, chord.at + groupDelta)
+          : drag?.index === i ? drag.at
+          : chord.at;
+        const isSelected = selection.has(i);
         const x0 = secondsToX(at);
         const nextRaw = i + 1 < chords.length ? chords[i + 1].at : duration;
-        const next = shift !== null && i + 1 < chords.length ? Math.max(0, nextRaw + shift) : nextRaw;
+        const nextSlides = i + 1 < chords.length && (shift !== null || (groupDelta !== null && selection.has(i + 1)));
+        const nextDelta = shift !== null ? shift : groupDelta ?? 0;
+        const next = nextSlides ? Math.max(0, nextRaw + nextDelta) : nextRaw;
         const x1 = secondsToX(next);
         const w = Math.max(2, x1 - x0);
         // Off-screen either side — skip rather than paint a zero-strip.
@@ -339,7 +411,7 @@ export function ChordLane({
           );
         }
 
-        const dragging = drag?.index === i;
+        const dragging = drag?.index === i || (groupDelta !== null && isSelected);
         return (
           <button
             key={i}
@@ -354,19 +426,22 @@ export function ChordLane({
             }}
             title={
               onRename
-                ? `${chord.label} — drag to move, double-click to rename, right-click to delete`
+                ? `${chord.label} — click to select, shift-click for a range, drag to move, double-click to rename, right-click to delete`
                 : chord.label
             }
             style={{
               position: "absolute", left: x0, top: 3, width: w, height: CHORD_LANE_HEIGHT - 6,
               display: "flex", alignItems: "center", justifyContent: "center",
               padding: "0 4px", boxSizing: "border-box",
-              background: isCurrent ? accent : skin.surface,
+              background: isCurrent ? accent : isSelected ? skin.surfaceSunken : skin.surface,
               color: isCurrent ? "#fff" : skin.fg,
-              border: `1px solid ${isCurrent ? accent : skin.border}`,
+              // Selected chords carry the accent border (and a ring) so a picked
+              // range reads as one block of selection against the rest.
+              border: `1px solid ${isCurrent || isSelected ? accent : skin.border}`,
+              boxShadow: isSelected && !isCurrent ? `inset 0 0 0 1px ${accent}` : undefined,
               borderRadius: radius.sm, cursor: onMove ? "grab" : onRename ? "pointer" : "default",
-              opacity: dragging ? 1 : isCurrent ? 1 : conf,
-              zIndex: dragging ? 5 : undefined,
+              opacity: dragging || isSelected ? 1 : isCurrent ? 1 : conf,
+              zIndex: dragging ? 5 : isSelected ? 3 : undefined,
               font: `600 ${size.xs}px ${font.body}`,
               overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
               touchAction: "none",
@@ -384,13 +459,17 @@ export function ChordLane({
       {onMove &&
         chords.map((chord, i) => {
           if (i === 0) return null;
-          const at = shift !== null ? Math.max(0, chord.at + shift) : drag?.index === i ? drag.at : chord.at;
+          const at =
+            shift !== null ? Math.max(0, chord.at + shift)
+            : groupDelta !== null && selection.has(i) ? Math.max(0, chord.at + groupDelta)
+            : drag?.index === i ? drag.at
+            : chord.at;
           const x = secondsToX(at);
           if (x < -3 || x > width + 3) return null;
           return (
             <div
               key={`b${i}`}
-              onPointerDown={startMove(i)}
+              onPointerDown={startMove(i, true)}
               title="Drag to adjust where this chord begins (and the one before ends)"
               style={{
                 position: "absolute", left: x - 3, top: 3, width: 6, height: CHORD_LANE_HEIGHT - 6,

@@ -15,7 +15,7 @@ import { laneName, tempoOf, formatKey } from "./bundle.mjs";
 import { sanitizeLook, laneColorFor, LANE_HEIGHT, DEFAULT_LOOK } from "./bundle.mjs";
 import { encodeWav } from "./bundle.mjs";
 import { bandMagnitudeDb, eqResponseDb } from "./bundle.mjs";
-import { chordIndexAt, chordToMidi } from "./bundle.mjs";
+import { chordIndexAt, chordToMidi, rebaseChords } from "./bundle.mjs";
 import { chordsToSmf } from "./bundle.mjs";
 import { snapToBeat } from "./bundle.mjs";
 import { classesForKey } from "./bundle.mjs";
@@ -278,6 +278,21 @@ arr("sus4", chordToMidi("Csus4"), [48, 53, 55]);
 arr("slash bass is ignored", chordToMidi("D/F#"), [50, 54, 57]);
 arr("no-chord parses to nothing", chordToMidi("N.C."), []);
 arr("flat and sharp name the same note", chordToMidi("Bb"), chordToMidi("A#"));
+
+console.log("  copy/paste chords (rebased to the playhead, spacing preserved)");
+{
+  const verse = [
+    { at: 8, label: "C", confidence: 1 },
+    { at: 10, label: "G", confidence: 0.8 },
+    { at: 14, label: "Am", confidence: 1 },
+  ];
+  const pasted = rebaseChords(verse, 40);
+  arr("first lands at the playhead, gaps kept", pasted.map((c) => c.at), [40, 42, 46]);
+  arr("labels carried through", pasted.map((c) => c.label), ["C", "G", "Am"]);
+  ok("confidence carried through", pasted[1].confidence === 0.8, `got ${pasted[1].confidence}`);
+  ok("never pastes before zero", rebaseChords(verse, -3).every((c) => c.at >= 0), "a negative target produced a negative time");
+  ok("empty selection pastes nothing", rebaseChords([], 10).length === 0);
+}
 
 console.log("  chord progression → Standard MIDI File");
 {
