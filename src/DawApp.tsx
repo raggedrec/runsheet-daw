@@ -263,6 +263,12 @@ export default function DawApp() {
       mutateChords((ch) => ch.map((c, i) => (i === index ? { ...c, at: Math.max(0, seconds) } : c))),
     [mutateChords],
   );
+  // Clear every chord. Confirmed because it writes [] to the shared column, so
+  // it also clears them in Run Sheet and the Writer — not just this lane.
+  const clearChords = useCallback(() => {
+    if (!window.confirm("Clear all detected chords? This also clears them in Run Sheet and the Writer.")) return;
+    mutateChords(() => []);
+  }, [mutateChords]);
   const addChordAt = useCallback(
     (at: number) => mutateChords((ch) => [...ch, { at: Math.max(0, at), label: "N.C.", confidence: 1 }]),
     [mutateChords],
@@ -1381,6 +1387,7 @@ export default function DawApp() {
                       onExportMidi={
                         (chordFile.analysis?.chords.length ?? 0) > 0 ? () => exportMidiChords(duration) : null
                       }
+                      onClearChords={(chordFile.analysis?.chords.length ?? 0) > 0 ? clearChords : null}
                       skin={skin}
                       accent={accent.solid}
                     />

@@ -15,7 +15,7 @@
  * shared analysis column, so the edit lands in Run Sheet and the Writer too.
  */
 import { useEffect, useRef, useState } from "react";
-import { Wand2, Plus, Music2, Download } from "lucide-react";
+import { Wand2, Plus, MoreHorizontal } from "lucide-react";
 import { chordIndexAt, type DetectedChord } from "./chords";
 import { snapToBeat } from "./grid";
 import { font, radius, size, type Skin } from "./theme";
@@ -35,7 +35,7 @@ export interface ChordSource {
  * gutter is narrow, so status text lives in the strip, not here.
  */
 export function ChordLaneControls({
-  chordCount, onAnalyse, analysing, error, sources, sourceId, onPickSource, onAddAtPlayhead, onMakeMidi, onExportMidi, skin, accent,
+  chordCount, onAnalyse, analysing, error, sources, sourceId, onPickSource, onAddAtPlayhead, onClearChords, onMakeMidi, onExportMidi, skin, accent,
 }: {
   chordCount: number;
   onAnalyse: (() => void) | null;
@@ -45,6 +45,8 @@ export function ChordLaneControls({
   sourceId: string;
   onPickSource: (id: string) => void;
   onAddAtPlayhead: (() => void) | null;
+  /** Clear every chord. Null when there are none. */
+  onClearChords: (() => void) | null;
   /** Build a MIDI chord track from the chords. Null when there are none. */
   onMakeMidi: (() => void) | null;
   /** Download the chords as a .mid file. Null when there are none. */
@@ -52,12 +54,32 @@ export function ChordLaneControls({
   skin: Skin;
   accent: string;
 }) {
+  // The menu lives in the narrow gutter, so it opens as a fixed-position popover
+  // anchored to the ⋯ button — otherwise the gutter's overflow:hidden clips it.
+  const menuBtn = useRef<HTMLButtonElement | null>(null);
+  const [menuAt, setMenuAt] = useState<{ x: number; y: number } | null>(null);
+
   const iconBtn = (colour: string, enabled: boolean): React.CSSProperties => ({
     display: "grid", placeItems: "center", flex: "0 0 auto", width: 19, height: 20, padding: 0,
     background: "transparent", color: enabled ? colour : skin.fgSubtle,
     border: `1px solid ${enabled ? colour : skin.border}`, borderRadius: radius.sm,
     cursor: enabled ? "pointer" : "default",
   });
+
+  const item = (label: string, onClick: (() => void) | null, danger = false) => (
+    <button
+      onClick={() => { setMenuAt(null); onClick?.(); }}
+      disabled={!onClick}
+      style={{
+        textAlign: "left", padding: "5px 8px", borderRadius: radius.sm, border: "none",
+        background: "transparent", cursor: onClick ? "pointer" : "default",
+        color: !onClick ? skin.fgSubtle : danger ? RED : skin.fg,
+        font: `${size.sm}px ${font.body}`, whiteSpace: "nowrap",
+      }}
+    >
+      {label}
+    </button>
+  );
 
   return (
     <div
@@ -92,28 +114,6 @@ export function ChordLaneControls({
         </button>
       )}
 
-      {onMakeMidi && (
-        <button
-          onClick={onMakeMidi}
-          title="Build a MIDI chord track (block chords) from these chords"
-          aria-label="Make MIDI chord track"
-          style={iconBtn(accent, true)}
-        >
-          <Music2 size={12} />
-        </button>
-      )}
-
-      {onExportMidi && (
-        <button
-          onClick={onExportMidi}
-          title="Download these chords as a .mid file"
-          aria-label="Export chords as MIDI"
-          style={iconBtn(accent, true)}
-        >
-          <Download size={12} />
-        </button>
-      )}
-
       {onAnalyse && (
         <button
           onClick={onAnalyse}
@@ -124,6 +124,39 @@ export function ChordLaneControls({
         >
           <Wand2 size={12} />
         </button>
+      )}
+
+      {/* Secondary actions — MIDI out and clear — tucked in a menu so the gutter
+          stays legible. */}
+      <button
+        ref={menuBtn}
+        onClick={() => {
+          const r = menuBtn.current?.getBoundingClientRect();
+          setMenuAt(menuAt ? null : r ? { x: r.right, y: r.bottom + 2 } : null);
+        }}
+        title="More chord actions"
+        aria-label="More chord actions"
+        style={iconBtn(skin.fgMuted, true)}
+      >
+        <MoreHorizontal size={13} />
+      </button>
+
+      {menuAt && (
+        <>
+          <div onClick={() => setMenuAt(null)} style={{ position: "fixed", inset: 0, zIndex: 40 }} />
+          <div
+            style={{
+              position: "fixed", left: menuAt.x - 170, top: menuAt.y, width: 170, zIndex: 41,
+              background: skin.surface, border: `1px solid ${skin.borderStrong}`, borderRadius: radius.md,
+              boxShadow: "0 8px 24px rgba(0,0,0,.4)", padding: 4, display: "flex", flexDirection: "column",
+            }}
+          >
+            {item("Make MIDI chord track", onMakeMidi)}
+            {item("Export chords as .mid", onExportMidi)}
+            <div style={{ height: 1, background: skin.border, margin: "3px 4px" }} />
+            {item("Clear all chords", onClearChords, true)}
+          </div>
+        </>
       )}
     </div>
   );
