@@ -16,7 +16,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Project, Capture, SampleService } from "@opendaw/studio-core";
 import { EffectFactories, CaptureAudio } from "@opendaw/studio-core";
-import { AudioUnitBoxAdapter } from "@opendaw/studio-adapters";
+import { AudioUnitBoxAdapter, TrackType } from "@opendaw/studio-adapters";
 import type { AudioUnitBox } from "@opendaw/studio-boxes";
 import type { LoadedLane } from "./opendaw/loadSong";
 import { probeChannelCount, type InputDevice } from "./opendaw/recording";
@@ -48,6 +48,10 @@ export interface MixerProps {
   armedName: string | null;
   /** A take is recording — clears the clip lights so a latch is this take's. */
   isRecording: boolean;
+  /** fileId of a lane whose device chain to open next (e.g. a just-built MIDI track). */
+  focusTrack?: string | null;
+  /** Called once the focus request has been consumed, so it fires only once. */
+  onFocused?: () => void;
 }
 
 /** Sentinel for "the master's device chain is open", since master isn't a lane. */
@@ -65,7 +69,7 @@ function isMaximizer(effect: unknown): boolean {
   return (ctor?.ClassName ?? "").startsWith("Maximizer");
 }
 
-export function Mixer({ project, sampleService, lanes, skin, accent, revision, onChanged, inputDevices, deviceId, onChooseDevice, colorFor, armedCapture, armedName, isRecording }: MixerProps) {
+export function Mixer({ project, sampleService, lanes, skin, accent, revision, onChanged, inputDevices, deviceId, onChooseDevice, colorFor, armedCapture, armedName, isRecording, focusTrack, onFocused }: MixerProps) {
   /*
    * One panel, two views. Clicking a track name in the list swaps the strips
    * for that track's devices; clicking it again goes back. The mixer and the
@@ -74,6 +78,14 @@ export function Mixer({ project, sampleService, lanes, skin, accent, revision, o
    */
   const [openTrack, setOpenTrack] = useState<string | null>(null);
   const masterMeter = useMasterMeter(project);
+
+  // A one-shot request to open a track's devices — e.g. the synth of a freshly
+  // built MIDI chord track, so its "sound section" is in front without hunting.
+  useEffect(() => {
+    if (!focusTrack) return;
+    setOpenTrack(focusTrack);
+    onFocused?.();
+  }, [focusTrack, onFocused]);
 
   // A latched clip should belong to the take you're recording, not the last one
   // you played — so clear it when a take starts rather than only on a click.
@@ -94,7 +106,11 @@ export function Mixer({ project, sampleService, lanes, skin, accent, revision, o
   const openUnit = openLane?.unit ?? (openTrack === MASTER_KEY ? master?.box ?? null : null);
   const openName = openLane?.name ?? (openTrack === MASTER_KEY ? "Master" : null);
   const isOpen = openUnit !== null;
-  const devices = openAdapter?.audioEffects.mapOr((c) => c.adapters(), () => []) ?? [];
+  // The instrument (the synth/sampler/Tape) first, then the effect chain — so a
+  // Notes track's sound source is shown and editable, not just its effects.
+  const instrument = openAdapter?.inputAdapter.mapOr((a) => (a.type === "instrument" ? a : null), () => null) ?? null;
+  const effects = openAdapter?.audioEffects.mapOr((c) => c.adapters(), () => []) ?? [];
+  const devices = instrument ? [instrument, ...effects] : effects;
 
   /*
    * The master limiter (openDAW's Maximizer). It ships ON by default — a mix bus
@@ -323,10 +339,11 @@ function Strip({
 
   // How many effects sit on this strip, read from the graph (not a second copy).
   // The FX chip shows it and opens the chain — a desk shows its inserts.
-  const fxCount = project.rootBoxAdapter.audioUnits
-    .adapters()
-    .find((a) => a.box === unit)
-    ?.audioEffects.mapOr((c) => c.adapters().length, () => 0) ?? 0;
+  const adapter = project.rootBoxAdapter.audioUnits.adapters().find((a) => a.box === unit);
+  const fxCount = adapter?.audioEffects.mapOr((c) => c.adapters().length, () => 0) ?? 0;
+  // A Notes (MIDI) track gets an INST chip — the way to its synth, which has no
+  // waveform to click. Audio stems (Tape) don't, so it points only at sounds.
+  const isNotes = adapter?.tracks.values()[0]?.type === TrackType.Notes;
 
   const write = useCallback(
     (fn: () => void) => {
@@ -380,6 +397,25 @@ function Strip({
           {name.toUpperCase()}
         </span>
       </div>
+
+      {/* A Notes track's synth lives behind this — the "sound section" the MIDI
+          lane has no waveform to open. Reuses onOpenDevices, which now shows the
+          instrument first. */}
+      {isNotes && onOpenDevices && (
+        <button
+          onClick={onOpenDevices}
+          title="Open this MIDI track's instrument (its sound)"
+          style={{
+            width: "100%", height: 20, padding: "0 6px", marginBottom: 1,
+            display: "flex", alignItems: "center", justifyContent: "center", gap: 4,
+            font: `700 ${size.xs}px ${font.body}`, letterSpacing: ".06em",
+            color: readableOn(accent), background: accent,
+            border: `1px solid ${accent}`, borderRadius: radius.sm, cursor: "pointer",
+          }}
+        >
+          INSTRUMENT
+        </button>
+      )}
 
       {/* FX inserts — count, and the way into the chain. A desk shows its
           inserts; this is the honest version (reads the graph, opens the rack). */}

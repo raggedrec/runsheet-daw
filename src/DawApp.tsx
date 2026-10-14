@@ -37,6 +37,7 @@ import { Browser } from "./Browser";
 import { ChordsPanel } from "./ChordsPanel";
 import { ChordLane, ChordLaneControls } from "./ChordLane";
 import { createChordTrack } from "./opendaw/midiChords";
+import { readLaneNotes, type LaneNotes } from "./opendaw/readNotes";
 import { chordsToSmf } from "./midiFile";
 import { MarkerStrip } from "./MarkerStrip";
 import {
@@ -106,6 +107,8 @@ export default function DawApp() {
    * there's never a second copy to disagree with the graph.
    */
   const [mixRevision, setMixRevision] = useState(0);
+  /** fileId of a lane whose device chain the mixer should open next (then clears). */
+  const [focusUnitId, setFocusUnitId] = useState<string | null>(null);
   /** fileId of the lane whose R button is lit. */
   const [armedLane, setArmedLane] = useState<string | null>(null);
   /*
@@ -312,12 +315,14 @@ export default function DawApp() {
         // Reach at least to the last chord, even if the lane duration is short.
         const span = Math.max(songSeconds, chords[chords.length - 1].at + 2);
         const unit = createChordTrack(session.project, chords, bpm, span, "Chords (MIDI)");
+        const laneId = `midi:${crypto.randomUUID()}`;
         setLanes((current) => [
           ...current,
-          { name: "Chords (MIDI)", fileId: `midi:${crypto.randomUUID()}`, seconds: span, peaks: null, unit },
+          { name: "Chords (MIDI)", fileId: laneId, seconds: span, peaks: null, unit },
         ]);
         setChordError(null);
         setMixRevision((n) => n + 1); // let the mixer pick up the new strip
+        setFocusUnitId(laneId); // and open its synth (the "sound section") straight away
       } catch (err) {
         setChordError(err instanceof Error ? err.message : "Couldn't build the MIDI track.");
         console.error("midi chord track failed", err);
@@ -621,6 +626,24 @@ export default function DawApp() {
 
   /* eslint-disable-next-line react-hooks/exhaustive-deps -- mixRevision is the trigger */
   const audible = useMemo(() => audibility(lanes), [lanes, mixRevision]);
+
+  /*
+   * Notes for the Notes (MIDI) lanes, read from the graph so the timeline can
+   * draw them where a stem would show a waveform. mixRevision is the trigger to
+   * re-read after a chord track is built or (later) its notes are edited.
+   */
+  const bpmValue = song?.bpm ? tempoOf(song.bpm) : null;
+  const notesByLane = useMemo(() => {
+    const map = new Map<string, LaneNotes>();
+    if (!session || !bpmValue) return map;
+    for (const lane of lanes) {
+      if (lane.peaks) continue; // audio stems draw waveforms, not notes
+      const notes = readLaneNotes(session.project, lane.unit, bpmValue);
+      if (notes) map.set(lane.fileId, notes);
+    }
+    return map;
+    /* eslint-disable-next-line react-hooks/exhaustive-deps -- mixRevision is the trigger */
+  }, [lanes, session, bpmValue, mixRevision]);
 
 
   const bump = useCallback(() => setMixRevision((n) => n + 1), []);
@@ -1465,6 +1488,7 @@ export default function DawApp() {
                     onScroll={setScroll}
                     colorWaveforms={look.colorWaveforms}
                     colorFor={colorFor}
+                    notesByLane={notesByLane}
                   />
                 </div>
               </div>
@@ -1489,6 +1513,8 @@ export default function DawApp() {
                 armedCapture={recordTrack?.capture ?? null}
                 armedName={recordTrack?.name ?? null}
                 isRecording={isRecording}
+                focusTrack={focusUnitId}
+                onFocused={() => setFocusUnitId(null)}
               />
             </div>
             </div>

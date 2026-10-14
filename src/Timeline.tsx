@@ -14,6 +14,7 @@
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import { PeaksPainter } from "@opendaw/lib-fusion";
 import type { LoadedLane } from "./opendaw/loadSong";
+import type { LaneNotes } from "./opendaw/readNotes";
 import { snapToBeat } from "./grid";
 import { font, size, type Skin } from "./theme";
 
@@ -65,12 +66,14 @@ export interface TimelineProps {
   colorWaveforms?: boolean;
   /** A lane's colour — the chosen one, or the role default. */
   colorFor: (lane: LoadedLane) => string;
+  /** Notes to draw for Notes (MIDI) lanes, keyed by fileId — a mini piano roll. */
+  notesByLane?: ReadonlyMap<string, LaneNotes>;
 }
 
 export function Timeline({
   lanes, skin, accent, laneHeight, position, duration, bpm, muted, soloed, onScrub,
   gutter = GUTTER,
-  zoom, scroll, onScroll, colorWaveforms = false, colorFor,
+  zoom, scroll, onScroll, colorWaveforms = false, colorFor, notesByLane,
 }: TimelineProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const wrapRef = useRef<HTMLDivElement | null>(null);
@@ -232,6 +235,40 @@ export function Timeline({
           }
         }
         ctx.restore();
+      } else {
+        /*
+         * A Notes (MIDI) lane has no peaks — draw its notes instead, a read-only
+         * mini piano roll: pitch top-to-bottom, time across, on the same
+         * secondsToX as the waveforms so a note sits over the beat it plays. The
+         * notes come from the graph (notesByLane), so an edit shows here with no
+         * second copy to keep in step.
+         */
+        const notes = notesByLane?.get(lane.fileId);
+        if (notes) {
+          const pad = 3;
+          const usable = laneHeight - pad * 2;
+          // A note of padding above and below the range, so the top and bottom
+          // rows aren't jammed against the lane edges.
+          const lo = notes.minPitch - 1;
+          const span = Math.max(1, notes.maxPitch + 1 - lo);
+          const rowH = Math.max(2, Math.min(9, usable / span));
+          const role = colorFor(lane);
+          ctx.save();
+          ctx.beginPath();
+          ctx.rect(trackX, top, trackW, laneHeight);
+          ctx.clip();
+          ctx.fillStyle = on ? withAlpha(role, 0.9) : skin.waveMuted;
+          for (const note of notes.notes) {
+            const x0 = secondsToX(note.at);
+            const x1 = secondsToX(note.at + note.duration);
+            if (x1 < trackX || x0 > trackX + trackW) continue;
+            const y = top + pad + (1 - (note.pitch - lo) / span) * (usable - rowH);
+            ctx.beginPath();
+            ctx.roundRect(Math.max(trackX, x0) + 0.5, y + 0.5, Math.max(2, x1 - x0) - 1, rowH - 1, 2);
+            ctx.fill();
+          }
+          ctx.restore();
+        }
       }
 
       // Separator under every lane but the last.
@@ -332,7 +369,7 @@ export function Timeline({
     ctx.lineTo(px, 8);
     ctx.closePath();
     ctx.fill();
-  }, [lanes, skin, accent, laneHeight, position, duration, bpm, audible, height, gutter, zoom, scroll, colorWaveforms, colorFor]);
+  }, [lanes, skin, accent, laneHeight, position, duration, bpm, audible, height, gutter, zoom, scroll, colorWaveforms, colorFor, notesByLane]);
 
   useEffect(() => {
     draw();
