@@ -495,6 +495,14 @@ export interface ChordHints {
   vocabulary?: string[];
   /** Tonic pitch class and mode, from the key field or from detection. */
   key?: { tonic: number; minor: boolean } | null;
+  /**
+   * The known tempo, to segment chords on real bars rather than the analyser's
+   * tempo guess. A wrong guess sizes the segments wrong, so boundaries fall off
+   * the beat and short chords get filtered away — which reads as chords that
+   * don't line up (and the first one landing seconds late). Overrides the
+   * detected tempo for segmentation only; the reported bpm is still detected.
+   */
+  bpm?: number | null;
 }
 
 /** Scale degrees that produce the ordinary chords of a key. */
@@ -599,7 +607,9 @@ export function detectChords(
 ): ChordSegment[] {
   if (frames.length === 0) return [];
   const frameSeconds = HARMONY_HOP / sampleRate;
-  const segmentSeconds = bpm ? Math.max(0.35, (60 / bpm) * 4) : 0.5;
+  // Prefer the known tempo over the detected one, so segments are real bars.
+  const segBpm = hints.bpm ?? bpm;
+  const segmentSeconds = segBpm ? Math.max(0.35, (60 / segBpm) * 4) : 0.5;
   const framesPerSegment = Math.max(2, Math.round(segmentSeconds / frameSeconds));
 
   const raw: ChordSegment[] = [];

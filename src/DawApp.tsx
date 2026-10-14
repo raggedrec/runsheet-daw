@@ -379,7 +379,10 @@ export default function DawApp() {
       const res = await fetch(url);
       if (!res.ok) throw new Error(`Couldn't fetch ${target.name} (HTTP ${res.status}).`);
       const { channels, sampleRate } = await decodeToChannels(await res.arrayBuffer());
-      const result = await analyseInWorker(channels, sampleRate, true, { key: parseKeyHint(song?.key ?? null) });
+      const result = await analyseInWorker(channels, sampleRate, true, {
+        key: parseKeyHint(song?.key ?? null),
+        bpm: song?.bpm ? tempoOf(song.bpm) : null,
+      });
       if (result.bpm === null && result.key === null && result.chords.length === 0) {
         throw new Error("Couldn't get a reading — the file may be too short or too quiet.");
       }
