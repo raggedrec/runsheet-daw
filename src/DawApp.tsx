@@ -39,6 +39,7 @@ import { ChordLane, ChordLaneControls } from "./ChordLane";
 import { createChordTrack } from "./opendaw/midiChords";
 import { readLaneNotes, type LaneNotes } from "./opendaw/readNotes";
 import { chordsToSmf } from "./midiFile";
+import { extractChordsFromSmf } from "./midiRead";
 import { MarkerStrip } from "./MarkerStrip";
 import {
   listMarkers, subscribeMarkers, addMarker, moveMarker, renameMarker, deleteMarker, hueFor,
@@ -198,8 +199,13 @@ export default function DawApp() {
     }
   }, [song?.id]);
 
+  // Chord sources: audio stems/mix, plus any uploaded MIDI file — a .mid gives
+  // exact notes, so the wand reads chords straight out of it (see analyseChords).
   const audioFiles = useMemo(
-    () => (song?.files ?? []).filter((f) => f.storagePath && (f.role === "mix" || f.role === "stem")),
+    () =>
+      (song?.files ?? []).filter(
+        (f) => f.storagePath && (f.role === "mix" || f.role === "stem" || f.role === "midi" || /\.midi?$/i.test(f.name)),
+      ),
     [song],
   );
 
@@ -467,6 +473,19 @@ export default function DawApp() {
       const url = await signedUrl(target.storagePath);
       const res = await fetch(url);
       if (!res.ok) throw new Error(`Couldn't fetch ${target.name} (HTTP ${res.status}).`);
+
+      // A MIDI source needs no decode or FFT — read the notes and name them.
+      // Flats when the song's key is a flat one, to match the written chart.
+      if (target.role === "midi" || /\.midi?$/i.test(target.name)) {
+        const flat = /[A-G]b/.test(song?.key ?? "");
+        const chords = extractChordsFromSmf(await res.arrayBuffer(), flat);
+        if (chords.length === 0) throw new Error("No chords found — the MIDI file has no notes.");
+        const analysis: StoredAnalysis = { ...(target.analysis ?? { chords: [] }), chords };
+        setSong((s) => (s ? { ...s, files: s.files.map((f) => (f.id === target.id ? { ...f, analysis } : f)) } : s));
+        await saveFileAnalysis(target.id, analysis);
+        return;
+      }
+
       const { channels, sampleRate } = await decodeToChannels(await res.arrayBuffer());
       const result = await analyseInWorker(channels, sampleRate, true, {
         key: parseKeyHint(song?.key ?? null),

@@ -15,7 +15,7 @@ import { laneName, tempoOf, formatKey } from "./bundle.mjs";
 import { sanitizeLook, laneColorFor, LANE_HEIGHT, DEFAULT_LOOK } from "./bundle.mjs";
 import { encodeWav } from "./bundle.mjs";
 import { bandMagnitudeDb, eqResponseDb } from "./bundle.mjs";
-import { chordIndexAt, chordToMidi, rebaseChords } from "./bundle.mjs";
+import { chordIndexAt, chordToMidi, rebaseChords, nameChord, extractChordsFromSmf } from "./bundle.mjs";
 import { chordsToSmf } from "./bundle.mjs";
 import { snapToBeat } from "./bundle.mjs";
 import { classesForKey } from "./bundle.mjs";
@@ -292,6 +292,38 @@ console.log("  copy/paste chords (rebased to the playhead, spacing preserved)");
   ok("confidence carried through", pasted[1].confidence === 0.8, `got ${pasted[1].confidence}`);
   ok("never pastes before zero", rebaseChords(verse, -3).every((c) => c.at >= 0), "a negative target produced a negative time");
   ok("empty selection pastes nothing", rebaseChords([], 10).length === 0);
+}
+
+console.log("  name a chord from its pitch classes (reverse of chordToMidi)");
+{
+  const label = (pcs, bass, flat) => nameChord(pcs, bass, flat).label;
+  ok("major triad", label([0, 4, 7]) === "C", label([0, 4, 7]));
+  ok("minor triad", label([9, 0, 4]) === "Am", label([9, 0, 4]));
+  ok("dominant 7", label([7, 11, 2, 5]) === "G7", label([7, 11, 2, 5]));
+  ok("major 7", label([2, 6, 9, 1]) === "Dmaj7", label([2, 6, 9, 1]));
+  ok("diminished", label([0, 3, 6]) === "Cdim", label([0, 3, 6]));
+  ok("augmented", label([0, 4, 8]) === "Caug", label([0, 4, 8]));
+  ok("flat spelling for a flat key", label([10, 2, 5], null, true) === "Bb", label([10, 2, 5], null, true));
+  ok("seventh beats the triad it contains", label([0, 4, 7, 10]) === "C7", label([0, 4, 7, 10]));
+  ok("nothing sounding is N.C.", label([]) === "N.C.", label([]));
+  // Every name round-trips: naming a chord's own notes gives those pitch classes.
+  const pcsOf = (notes) => new Set(notes.map((n) => ((n % 12) + 12) % 12));
+  const a = pcsOf(chordToMidi("Fmaj7"));
+  const b = pcsOf(chordToMidi(nameChord([...a]).label));
+  ok("name → chordToMidi round-trips the pitch classes", a.size === b.size && [...a].every((x) => b.has(x)));
+}
+
+console.log("  extract chords from a MIDI file (reader ↔ writer round-trip)");
+{
+  const prog = [
+    { at: 0, label: "C", confidence: 1 },
+    { at: 1, label: "Am", confidence: 1 },
+    { at: 2, label: "G7", confidence: 1 },
+  ];
+  const smf = chordsToSmf(prog, 120, 3);
+  const read = extractChordsFromSmf(smf);
+  arr("labels survive the round-trip", read.map((c) => c.label), ["C", "Am", "G7"]);
+  arr("held chords land on their beat", read.map((c) => Math.round(c.at * 100) / 100), [0, 1, 2]);
 }
 
 console.log("  chord progression → Standard MIDI File");

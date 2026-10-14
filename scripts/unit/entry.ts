@@ -14,7 +14,8 @@ export { bandMagnitudeDb, eqResponseDb } from "../../src/eqResponse";
 export {
   feedMeter, clearClip, meterFill, linearToDb, SILENT_METER, METER_FLOOR_DB, RELEASE_DB_PER_SEC, HOLD_SECS, CLIP_LINEAR,
 } from "../../src/meter";
-export { chordIndexAt, chordToMidi, rebaseChords } from "../../src/chords";
+export { chordIndexAt, chordToMidi, rebaseChords, nameChord } from "../../src/chords";
 export { chordsToSmf } from "../../src/midiFile";
+export { extractChordsFromSmf } from "../../src/midiRead";
 export { snapToBeat } from "../../src/grid";
 export { classesForKey } from "../../src/audioAnalysis";
