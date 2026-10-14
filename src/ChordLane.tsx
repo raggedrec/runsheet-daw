@@ -182,6 +182,7 @@ export function ChordLane({
   const startMove = (index: number) => (e: React.PointerEvent) => {
     if (!onMove || index < 0 || index >= chords.length) return;
     e.stopPropagation();
+    e.preventDefault(); // stop the drag from selecting the chord labels
     const rect = ref.current?.getBoundingClientRect();
     const startX = e.clientX;
     let moved = false;
@@ -213,6 +214,7 @@ export function ChordLane({
         position: "relative", height: CHORD_LANE_HEIGHT, flex: "0 0 auto",
         borderBottom: `1px solid ${skin.laneLine}`,
         background: skin.surfaceSunken, overflow: "hidden",
+        userSelect: "none", WebkitUserSelect: "none",
       }}
     >
       {/* Empty lane: say how to fill it rather than looking broken. */}
