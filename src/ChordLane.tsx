@@ -142,16 +142,20 @@ export interface ChordLaneProps {
   onRename: ((index: number, label: string) => void) | null;
   /** Delete chord `index` (right-click). Null disables deleting. */
   onDelete: ((index: number) => void) | null;
+  /** Move chord `index` to a new time (drag). Null disables moving. */
+  onMove: ((index: number, seconds: number) => void) | null;
   /** The wand is running — shown in the empty strip. */
   analysing: boolean;
 }
 
 export function ChordLane({
-  chords, duration, zoom, scroll, playheadSeconds, skin, accent, onRename, onDelete, analysing,
+  chords, duration, zoom, scroll, playheadSeconds, skin, accent, onRename, onDelete, onMove, analysing,
 }: ChordLaneProps) {
   const ref = useRef<HTMLDivElement | null>(null);
   const [width, setWidth] = useState(0);
   const [editing, setEditing] = useState<number | null>(null);
+  // Live preview while dragging a block, so it tracks the pointer before commit.
+  const [drag, setDrag] = useState<{ index: number; at: number } | null>(null);
 
   useEffect(() => {
     const el = ref.current;
@@ -166,6 +170,33 @@ export function ChordLane({
   const visible = duration / Math.max(1, zoom);
   const from = Math.max(0, Math.min(scroll, Math.max(0, duration - visible)));
   const secondsToX = (s: number) => (visible > 0 ? ((s - from) / visible) * width : 0);
+  const xToSeconds = (x: number) => Math.max(0, from + (width > 0 ? (x / width) * visible : 0));
+
+  // Drag a block sideways to set where its chord lands. A small threshold keeps
+  // a plain click (for double-click rename) from registering as a move.
+  const startDrag = (index: number) => (e: React.PointerEvent) => {
+    if (!onMove) return;
+    const rect = ref.current?.getBoundingClientRect();
+    const startX = e.clientX;
+    let moved = false;
+    const move = (ev: PointerEvent) => {
+      if (!moved && Math.abs(ev.clientX - startX) < 3) return;
+      moved = true;
+      const x = Math.max(0, Math.min(width, ev.clientX - (rect?.left ?? 0)));
+      setDrag({ index, at: xToSeconds(x) });
+    };
+    const up = (ev: PointerEvent) => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      if (moved) {
+        const x = Math.max(0, Math.min(width, ev.clientX - (rect?.left ?? 0)));
+        onMove(index, xToSeconds(x));
+      }
+      setDrag(null);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+  };
 
   const current = chordIndexAt(chords, playheadSeconds);
 
@@ -193,7 +224,9 @@ export function ChordLane({
       )}
 
       {chords.map((chord, i) => {
-        const x0 = secondsToX(chord.at);
+        // While dragging this block, follow the pointer; others stay put.
+        const at = drag?.index === i ? drag.at : chord.at;
+        const x0 = secondsToX(at);
         const next = i + 1 < chords.length ? chords[i + 1].at : duration;
         const x1 = secondsToX(next);
         const w = Math.max(2, x1 - x0);
@@ -223,9 +256,11 @@ export function ChordLane({
           );
         }
 
+        const dragging = drag?.index === i;
         return (
           <button
             key={i}
+            onPointerDown={onMove ? startDrag(i) : undefined}
             onDoubleClick={() => onRename && setEditing(i)}
             onContextMenu={(e) => {
               if (!onDelete) return;
@@ -236,7 +271,7 @@ export function ChordLane({
             }}
             title={
               onRename
-                ? `${chord.label} — double-click to rename, right-click to delete`
+                ? `${chord.label} — drag to move, double-click to rename, right-click to delete`
                 : chord.label
             }
             style={{
@@ -246,10 +281,12 @@ export function ChordLane({
               background: isCurrent ? accent : skin.surface,
               color: isCurrent ? "#fff" : skin.fg,
               border: `1px solid ${isCurrent ? accent : skin.border}`,
-              borderRadius: radius.sm, cursor: onRename ? "pointer" : "default",
-              opacity: isCurrent ? 1 : conf,
+              borderRadius: radius.sm, cursor: onMove ? "grab" : onRename ? "pointer" : "default",
+              opacity: dragging ? 1 : isCurrent ? 1 : conf,
+              zIndex: dragging ? 5 : undefined,
               font: `600 ${size.xs}px ${font.body}`,
               overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+              touchAction: "none",
             }}
           >
             {/* Hide the label on a block too narrow to hold it, so bars don't

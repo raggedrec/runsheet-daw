@@ -48,7 +48,7 @@ import { collectTakes } from "./opendaw/take";
 import { saveSession, loadSession } from "./session";
 import { uploadToIdeaDrop, downloadUrl, deleteIdeaDropFile, saveFileChords, saveFileAnalysis, signedUrl } from "./runsheet";
 import { decodeToChannels, analyseInWorker } from "./analyse";
-import { parseKeyHint, type StoredAnalysis, type DetectedChord } from "./chords";
+import { parseKeyHint, chordToMidi, type StoredAnalysis, type DetectedChord } from "./chords";
 import { bounceMix } from "./opendaw/bounce";
 import { encodeWav } from "./wav";
 import { Dialog } from "./Dialog";
@@ -258,6 +258,11 @@ export default function DawApp() {
     (index: number) => mutateChords((ch) => ch.filter((_, i) => i !== index)),
     [mutateChords],
   );
+  const moveChord = useCallback(
+    (index: number, seconds: number) =>
+      mutateChords((ch) => ch.map((c, i) => (i === index ? { ...c, at: Math.max(0, seconds) } : c))),
+    [mutateChords],
+  );
   const addChordAt = useCallback(
     (at: number) => mutateChords((ch) => [...ch, { at: Math.max(0, at), label: "N.C.", confidence: 1 }]),
     [mutateChords],
@@ -281,6 +286,14 @@ export default function DawApp() {
       const bpm = song.bpm ? tempoOf(song.bpm) : null;
       if (!bpm) {
         setChordError("Set the song's tempo (BPM) to build a MIDI chord track.");
+        return;
+      }
+      // Fail loudly if the labels produce no notes, rather than making an empty
+      // track — and log the labels so a bad parse can be seen in the engine log.
+      const notes = chords.reduce((n, c) => n + chordToMidi(c.label).length, 0);
+      console.info(`[chords→midi] ${chords.length} chords, ${notes} notes · ${chords.slice(0, 6).map((c) => c.label).join(" ")}`);
+      if (notes === 0) {
+        setChordError("No playable notes from these chord names — check the labels.");
         return;
       }
       try {
@@ -317,6 +330,12 @@ export default function DawApp() {
       const bpm = song.bpm ? tempoOf(song.bpm) : null;
       if (!bpm) {
         setChordError("Set the song's tempo (BPM) to export MIDI.");
+        return;
+      }
+      const notes = chords.reduce((n, c) => n + chordToMidi(c.label).length, 0);
+      console.info(`[chords→midi export] ${chords.length} chords, ${notes} notes · ${chords.slice(0, 6).map((c) => c.label).join(" ")}`);
+      if (notes === 0) {
+        setChordError("No playable notes from these chord names — check the labels.");
         return;
       }
       try {
@@ -1374,6 +1393,7 @@ export default function DawApp() {
                       accent={accent.solid}
                       onRename={renameChord}
                       onDelete={deleteChord}
+                      onMove={moveChord}
                       analysing={analysing}
                     />
                   </div>
