@@ -1397,6 +1397,7 @@ export default function DawApp() {
                       onRename={renameChord}
                       onDelete={deleteChord}
                       onMove={moveChord}
+                      bpm={song?.bpm ? tempoOf(song.bpm) : null}
                       analysing={analysing}
                     />
                   </div>

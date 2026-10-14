@@ -16,4 +16,5 @@ export {
 } from "../../src/meter";
 export { chordIndexAt, chordToMidi } from "../../src/chords";
 export { chordsToSmf } from "../../src/midiFile";
+export { snapToBeat } from "../../src/grid";
 export { classesForKey } from "../../src/audioAnalysis";

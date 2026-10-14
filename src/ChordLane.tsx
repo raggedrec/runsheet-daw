@@ -17,6 +17,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Wand2, Plus, Music2, Download } from "lucide-react";
 import { chordIndexAt, type DetectedChord } from "./chords";
+import { snapToBeat } from "./grid";
 import { font, radius, size, type Skin } from "./theme";
 
 export const CHORD_LANE_HEIGHT = 30;
@@ -144,12 +145,14 @@ export interface ChordLaneProps {
   onDelete: ((index: number) => void) | null;
   /** Move chord `index` to a new time (drag). Null disables moving. */
   onMove: ((index: number, seconds: number) => void) | null;
+  /** Tempo, for snapping drags to the beat. Null = no snap. */
+  bpm: number | null;
   /** The wand is running — shown in the empty strip. */
   analysing: boolean;
 }
 
 export function ChordLane({
-  chords, duration, zoom, scroll, playheadSeconds, skin, accent, onRename, onDelete, onMove, analysing,
+  chords, duration, zoom, scroll, playheadSeconds, skin, accent, onRename, onDelete, onMove, bpm, analysing,
 }: ChordLaneProps) {
   const ref = useRef<HTMLDivElement | null>(null);
   const [width, setWidth] = useState(0);
@@ -172,26 +175,29 @@ export function ChordLane({
   const secondsToX = (s: number) => (visible > 0 ? ((s - from) / visible) * width : 0);
   const xToSeconds = (x: number) => Math.max(0, from + (width > 0 ? (x / width) * visible : 0));
 
-  // Drag a block sideways to set where its chord lands. A small threshold keeps
-  // a plain click (for double-click rename) from registering as a move.
-  const startDrag = (index: number) => (e: React.PointerEvent) => {
-    if (!onMove) return;
+  // Drag to set where a chord lands — a block body moves that chord, a boundary
+  // handle moves the chord whose start it is (so it adjusts the previous block's
+  // end). Snaps to the beat unless Alt is held. A small threshold keeps a plain
+  // click (for rename/delete) from registering as a move.
+  const startMove = (index: number) => (e: React.PointerEvent) => {
+    if (!onMove || index < 0 || index >= chords.length) return;
+    e.stopPropagation();
     const rect = ref.current?.getBoundingClientRect();
     const startX = e.clientX;
     let moved = false;
+    const at = (clientX: number, alt: boolean) => {
+      const x = Math.max(0, Math.min(width, clientX - (rect?.left ?? 0)));
+      return snapToBeat(xToSeconds(x), bpm, alt);
+    };
     const move = (ev: PointerEvent) => {
       if (!moved && Math.abs(ev.clientX - startX) < 3) return;
       moved = true;
-      const x = Math.max(0, Math.min(width, ev.clientX - (rect?.left ?? 0)));
-      setDrag({ index, at: xToSeconds(x) });
+      setDrag({ index, at: at(ev.clientX, ev.altKey) });
     };
     const up = (ev: PointerEvent) => {
       window.removeEventListener("pointermove", move);
       window.removeEventListener("pointerup", up);
-      if (moved) {
-        const x = Math.max(0, Math.min(width, ev.clientX - (rect?.left ?? 0)));
-        onMove(index, xToSeconds(x));
-      }
+      if (moved) onMove(index, at(ev.clientX, ev.altKey));
       setDrag(null);
     };
     window.addEventListener("pointermove", move);
@@ -260,7 +266,7 @@ export function ChordLane({
         return (
           <button
             key={i}
-            onPointerDown={onMove ? startDrag(i) : undefined}
+            onPointerDown={onMove ? startMove(i) : undefined}
             onDoubleClick={() => onRename && setEditing(i)}
             onContextMenu={(e) => {
               if (!onDelete) return;
@@ -295,6 +301,27 @@ export function ChordLane({
           </button>
         );
       })}
+
+      {/* A boundary handle at each chord's start (bar the first): drag it to set
+          where this chord begins, i.e. where the previous block ends. */}
+      {onMove &&
+        chords.map((chord, i) => {
+          if (i === 0) return null;
+          const at = drag?.index === i ? drag.at : chord.at;
+          const x = secondsToX(at);
+          if (x < -3 || x > width + 3) return null;
+          return (
+            <div
+              key={`b${i}`}
+              onPointerDown={startMove(i)}
+              title="Drag to adjust where this chord begins (and the one before ends)"
+              style={{
+                position: "absolute", left: x - 3, top: 3, width: 6, height: CHORD_LANE_HEIGHT - 6,
+                cursor: "ew-resize", zIndex: 4, touchAction: "none",
+              }}
+            />
+          );
+        })}
     </div>
   );
 }

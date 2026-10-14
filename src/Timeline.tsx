@@ -14,6 +14,7 @@
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import { PeaksPainter } from "@opendaw/lib-fusion";
 import type { LoadedLane } from "./opendaw/loadSong";
+import { snapToBeat } from "./grid";
 import { font, size, type Skin } from "./theme";
 
 /**
@@ -347,9 +348,10 @@ export function Timeline({
     return () => ro.disconnect();
   }, [draw]);
 
-  /** Click or drag anywhere on the timeline to move the playhead. */
+  /** Click or drag anywhere on the timeline to move the playhead. Snaps to the
+   *  beat so the playhead lands where chords and bars do; hold Alt for exact. */
   const seekFrom = useCallback(
-    (clientX: number) => {
+    (clientX: number, bypassSnap: boolean) => {
       const wrap = wrapRef.current;
       if (!wrap || duration <= 0) return;
       const rect = wrap.getBoundingClientRect();
@@ -358,9 +360,10 @@ export function Timeline({
       if (w <= 0) return;
       const visible = duration / Math.max(1, zoom);
       const from = Math.max(0, Math.min(scroll, Math.max(0, duration - visible)));
-      onScrub(Math.min(duration, Math.max(0, from + (x / w) * visible)));
+      const seconds = from + (x / w) * visible;
+      onScrub(Math.min(duration, Math.max(0, snapToBeat(seconds, bpm, bypassSnap))));
     },
-    [duration, onScrub, gutter, zoom, scroll],
+    [duration, onScrub, gutter, zoom, scroll, bpm],
   );
 
   const onPointerDown = useCallback(
@@ -368,14 +371,14 @@ export function Timeline({
       // Capture so a drag that leaves the canvas keeps scrubbing, which is how
       // every DAW behaves and how nobody expects a web page to.
       e.currentTarget.setPointerCapture(e.pointerId);
-      seekFrom(e.clientX);
+      seekFrom(e.clientX, e.altKey);
     },
     [seekFrom],
   );
 
   const onPointerMove = useCallback(
     (e: React.PointerEvent<HTMLDivElement>) => {
-      if (e.buttons === 1) seekFrom(e.clientX);
+      if (e.buttons === 1) seekFrom(e.clientX, e.altKey);
     },
     [seekFrom],
   );

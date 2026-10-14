@@ -17,6 +17,7 @@ import { encodeWav } from "./bundle.mjs";
 import { bandMagnitudeDb, eqResponseDb } from "./bundle.mjs";
 import { chordIndexAt, chordToMidi } from "./bundle.mjs";
 import { chordsToSmf } from "./bundle.mjs";
+import { snapToBeat } from "./bundle.mjs";
 import { classesForKey } from "./bundle.mjs";
 import {
   feedMeter, clearClip, meterFill, linearToDb, SILENT_METER, METER_FLOOR_DB, RELEASE_DB_PER_SEC, HOLD_SECS, CLIP_LINEAR,
@@ -293,6 +294,15 @@ console.log("  chord progression → Standard MIDI File");
   // Ends with end-of-track meta FF 2F 00.
   arr("end of track", Array.from(smf.slice(-3)), [0xff, 0x2f, 0x00]);
 }
+
+console.log("  snap to beat grid");
+// At 120 bpm a beat is 0.5s.
+eq("snaps up to the nearest beat", snapToBeat(0.6, 120), 0.5);
+eq("snaps to the next beat", snapToBeat(0.8, 120), 1);
+eq("already on a beat stays", snapToBeat(2, 120), 2);
+eq("alt bypass returns exact", snapToBeat(0.6, 120, true), 0.6);
+eq("no tempo returns exact", snapToBeat(0.6, null), 0.6);
+eq("negative clamps to zero", snapToBeat(-1, 120), 0);
 
 console.log(`\n  ${pass} passed, ${fail} failed\n`);
 process.exit(fail ? 1 : 0);
