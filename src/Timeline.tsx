@@ -15,6 +15,7 @@ import { useCallback, useEffect, useMemo, useRef } from "react";
 import { PeaksPainter } from "@opendaw/lib-fusion";
 import type { LoadedLane } from "./opendaw/loadSong";
 import type { LaneNotes } from "./opendaw/readNotes";
+import type { Peer } from "./usePresence";
 import { snapToBeat } from "./grid";
 import { font, size, type Skin } from "./theme";
 
@@ -68,12 +69,14 @@ export interface TimelineProps {
   colorFor: (lane: LoadedLane) => string;
   /** Notes to draw for Notes (MIDI) lanes, keyed by fileId — a mini piano roll. */
   notesByLane?: ReadonlyMap<string, LaneNotes>;
+  /** Other people in this song — their playheads are drawn as ghosts. */
+  peers?: ReadonlyArray<Peer>;
 }
 
 export function Timeline({
   lanes, skin, accent, laneHeight, position, duration, bpm, muted, soloed, onScrub,
   gutter = GUTTER,
-  zoom, scroll, onScroll, colorWaveforms = false, colorFor, notesByLane,
+  zoom, scroll, onScroll, colorWaveforms = false, colorFor, notesByLane, peers,
 }: TimelineProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const wrapRef = useRef<HTMLDivElement | null>(null);
@@ -354,6 +357,32 @@ export function Timeline({
       ctx.fillRect(gutter - 1, 0, 1, height);
     }
 
+    // --- other people's playheads (ghosts), under mine --------------------
+    if (peers) for (const peer of peers) {
+      const gx = Math.round(secondsToX(Math.min(peer.position, duration))) + 0.5;
+      if (gx < trackX - 1 || gx > width) continue;
+      ctx.strokeStyle = peer.color;
+      ctx.globalAlpha = 0.6;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(gx, RULER_HEIGHT);
+      ctx.lineTo(gx, height);
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+      // A dot at the top marks whose it is; a ring means they're recording.
+      ctx.fillStyle = peer.color;
+      ctx.beginPath();
+      ctx.arc(gx, RULER_HEIGHT + 4, peer.recording ? 4 : 3, 0, Math.PI * 2);
+      ctx.fill();
+      if (peer.recording) {
+        ctx.strokeStyle = "#C0453B";
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.arc(gx, RULER_HEIGHT + 4, 6, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+    }
+
     // --- playhead, last so nothing covers it ------------------------------
     const px = Math.round(secondsToX(Math.min(position, duration))) + 0.5;
     ctx.strokeStyle = accent;
@@ -369,7 +398,7 @@ export function Timeline({
     ctx.lineTo(px, 8);
     ctx.closePath();
     ctx.fill();
-  }, [lanes, skin, accent, laneHeight, position, duration, bpm, audible, height, gutter, zoom, scroll, colorWaveforms, colorFor, notesByLane]);
+  }, [lanes, skin, accent, laneHeight, position, duration, bpm, audible, height, gutter, zoom, scroll, colorWaveforms, colorFor, notesByLane, peers]);
 
   useEffect(() => {
     draw();

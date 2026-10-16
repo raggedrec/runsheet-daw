@@ -21,13 +21,13 @@ import {
   type LoadedLane,
   type LoadProgress,
 } from "./opendaw/loadSong";
-import { loadSong, playableFiles, LoadError, type Song, type SongFile } from "./runsheet";
+import { loadSong, playableFiles, currentUser, LoadError, type Song, type SongFile } from "./runsheet";
 import { isConfigured, requestedSong, supabase } from "./supabase";
 import { S } from "./styles";
 import { Timeline } from "./Timeline";
 import { TransportBar } from "./TransportBar";
 import { useLook } from "./useLook";
-import { accents, skins, font, size, space, laneColorFor } from "./theme";
+import { accents, skins, font, size, space, laneColorFor, type Skin } from "./theme";
 import { StartScreen } from "./StartScreen";
 import { LoadingPanel } from "./LoadingPanel";
 import { Mixer, audibility } from "./Mixer";
@@ -55,6 +55,7 @@ import { bounceMix } from "./opendaw/bounce";
 import { encodeWav } from "./wav";
 import { Dialog } from "./Dialog";
 import { useTransport } from "./useTransport";
+import { usePresence, colorForId, type Me, type Peer } from "./usePresence";
 import { useMetronome } from "./useMetronome";
 import {
   addRecordTrack, armTrack, captureFor, disarmAll, listInputs, RecordingError,
@@ -862,6 +863,21 @@ export default function DawApp() {
   const transport = useTransport(session?.project ?? null, session?.audioContext ?? null);
   const seconds = transport.position;
 
+  // Who else is in this song, and where their playhead is (Supabase presence).
+  const [me, setMe] = useState<Me | null>(null);
+  useEffect(() => {
+    let live = true;
+    void currentUser().then((u) => {
+      if (live && u) setMe({ id: u.id, name: u.name, color: colorForId(u.id) });
+    });
+    return () => { live = false; };
+  }, []);
+  const peers = usePresence(song?.id ?? null, me, {
+    position: seconds,
+    playing: transport.isPlaying,
+    recording: transport.isRecording || isRecording,
+  });
+
   /*
    * The metronome lives in the engine's preferences (see useMetronome). It
    * clicks through the count-in as before and, once switched on, through
@@ -1444,6 +1460,8 @@ export default function DawApp() {
             onBounce={() => void bounce()}
           />
 
+          <PresenceBar peers={peers} skin={skin} />
+
           {/* The add-track form used to live here as a wide dead-space panel.
               Adding a track now happens in the track list (+ Add track) and the
               input is chosen in the mixer, so all that's left to surface here is
@@ -1611,6 +1629,7 @@ export default function DawApp() {
                     colorWaveforms={look.colorWaveforms}
                     colorFor={colorFor}
                     notesByLane={notesByLane}
+                    peers={peers}
                   />
                 </div>
               </div>
@@ -1820,4 +1839,52 @@ export default function DawApp() {
 export function formatTime(seconds: number): string {
   const whole = Math.max(0, Math.floor(seconds));
   return `${Math.floor(whole / 60)}:${String(whole % 60).padStart(2, "0")}`;
+}
+
+/** Initials for an avatar chip — one or two letters, never a smear. */
+function initials(name: string): string {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return "?";
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+}
+
+/**
+ * Who's in the song right now — a row of coloured initials, matching the ghost
+ * playheads on the timeline. Nothing when you're alone, so it stays out of the
+ * way until it means something.
+ */
+function PresenceBar({ peers, skin }: { peers: ReadonlyArray<Peer>; skin: Skin }) {
+  if (peers.length === 0) return null;
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 6, margin: `0 0 ${space[3]}px`, flexWrap: "wrap" }}>
+      <span style={{ font: `600 ${size.xs}px ${font.body}`, letterSpacing: ".06em", textTransform: "uppercase", color: skin.fgSubtle }}>
+        Here now
+      </span>
+      {peers.map((peer) => (
+        <span
+          key={peer.id}
+          title={peer.recording ? `${peer.name} — recording` : peer.playing ? `${peer.name} — playing` : peer.name}
+          style={{
+            display: "inline-flex", alignItems: "center", gap: 5,
+            padding: "2px 8px 2px 2px", borderRadius: 999,
+            background: skin.surface, border: `1px solid ${peer.recording ? "#C0453B" : skin.border}`,
+          }}
+        >
+          <span
+            style={{
+              width: 18, height: 18, borderRadius: 999, flex: "0 0 auto",
+              display: "grid", placeItems: "center",
+              background: peer.color, color: "#0b0d10",
+              font: `700 9px ${font.body}`,
+            }}
+          >
+            {initials(peer.name)}
+          </span>
+          <span style={{ font: `500 ${size.xs}px ${font.body}`, color: skin.fg }}>{peer.name}</span>
+          {peer.recording && <span style={{ width: 6, height: 6, borderRadius: 999, background: "#C0453B", flex: "0 0 auto" }} />}
+        </span>
+      ))}
+    </div>
+  );
 }

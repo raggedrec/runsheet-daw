@@ -166,6 +166,24 @@ export function playableFiles(song: Song): SongFile[] {
   return [[...mixes].sort((a, b) => b.addedAt - a.addedAt)[0]];
 }
 
+/**
+ * The signed-in user, for presence — who to show as "here" in a song. Name from
+ * whatever the auth metadata carries, falling back to the email's local part.
+ */
+export async function currentUser(): Promise<{ id: string; name: string } | null> {
+  const { data } = await supabase.auth.getUser();
+  const u = data.user;
+  if (!u) return null;
+  const meta = (u.user_metadata ?? {}) as Record<string, unknown>;
+  const name =
+    (meta.full_name as string) ||
+    (meta.name as string) ||
+    (meta.user_name as string) ||
+    (u.email ? u.email.split("@")[0] : "") ||
+    "Someone";
+  return { id: u.id, name };
+}
+
 /** A one-hour URL for a stored file. */
 export async function signedUrl(storagePath: string): Promise<string> {
   const { data, error } = await supabase.storage
