@@ -56,6 +56,8 @@ import { encodeWav } from "./wav";
 import { Dialog } from "./Dialog";
 import { useTransport } from "./useTransport";
 import { usePresence, colorForId, type Me, type Peer } from "./usePresence";
+import { useComments } from "./useComments";
+import { CommentStrip } from "./CommentStrip";
 import { useMetronome } from "./useMetronome";
 import {
   addRecordTrack, armTrack, captureFor, disarmAll, listInputs, RecordingError,
@@ -878,6 +880,13 @@ export default function DawApp() {
     recording: transport.isRecording || isRecording,
   });
 
+  // Timeline comments — notes pinned to a point in the song, shared with Run Sheet.
+  const { comments, add: addCommentAt, remove: removeComment } = useComments(
+    song?.id ?? null,
+    song?.sceneId ?? null,
+    me?.name ?? "Someone",
+  );
+
   /*
    * The metronome lives in the engine's preferences (see useMetronome). It
    * clicks through the count-in as before and, once switched on, through
@@ -1580,6 +1589,19 @@ export default function DawApp() {
                   </div>
                 </div>
               )}
+
+              {/* Comments pinned to the timeline, aligned the same gutter-0 way. */}
+              <CommentStrip
+                comments={comments}
+                duration={duration}
+                zoom={zoom}
+                scroll={scroll}
+                playheadSeconds={seconds}
+                skin={skin}
+                accent={accent.solid}
+                onAdd={(at, text) => void addCommentAt(at, text)}
+                onDelete={(id) => void removeComment(id)}
+              />
 
               {/* Tracks and timeline scroll together — one set of rows. */}
               <div style={{ display: "flex", flex: 1, minHeight: 0, overflow: "auto" }}>

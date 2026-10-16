@@ -184,6 +184,63 @@ export async function currentUser(): Promise<{ id: string; name: string } | null
   return { id: u.id, name };
 }
 
+/**
+ * Timeline comments — a feedback row pinned to a point in the song.
+ *
+ * Same `feedback` table Run Sheet already uses: a DAW comment and a Run Sheet
+ * note are one row, so they show in both. `at_ms` (nullable) is what makes it a
+ * pinned comment; general feedback leaves it null, and the DAW only shows the
+ * pinned ones. Author is a display name, not an id — the table has no user_id,
+ * and for a band tool "who said it" is enough without enforcing delete-own.
+ */
+export interface Comment {
+  id: string;
+  /** Seconds from the start of the song. */
+  atSeconds: number;
+  text: string;
+  author: string;
+  createdAt: number;
+}
+
+export async function listComments(trackId: string): Promise<Comment[]> {
+  const { data, error } = await supabase
+    .from("feedback")
+    .select("id, from_name, text, at_ms, created_at")
+    .eq("track_id", trackId)
+    .not("at_ms", "is", null)
+    .order("at_ms", { ascending: true });
+  if (error) throw error;
+  return (data ?? []).map((r) => ({
+    id: r.id as string,
+    atSeconds: (r.at_ms as number) / 1000,
+    text: (r.text as string) ?? "",
+    author: (r.from_name as string) || "Someone",
+    createdAt: new Date(r.created_at as string).getTime(),
+  }));
+}
+
+export async function addComment(input: {
+  trackId: string;
+  sceneId: string;
+  atSeconds: number;
+  text: string;
+  author: string;
+}): Promise<void> {
+  const { error } = await supabase.from("feedback").insert({
+    track_id: input.trackId,
+    scene_id: input.sceneId,
+    from_name: input.author,
+    text: input.text,
+    at_ms: Math.max(0, Math.round(input.atSeconds * 1000)),
+  });
+  if (error) throw error;
+}
+
+export async function deleteComment(id: string): Promise<void> {
+  const { error } = await supabase.from("feedback").delete().eq("id", id);
+  if (error) throw error;
+}
+
 /** A one-hour URL for a stored file. */
 export async function signedUrl(storagePath: string): Promise<string> {
   const { data, error } = await supabase.storage
