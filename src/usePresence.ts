@@ -47,8 +47,12 @@ export function usePresence(
   useEffect(() => {
     if (!songId || !me) return;
 
+    // Private: a realtime.messages RLS policy admits only members of the track's
+    // scene (migration 0018). setAuth hands the socket the user's token so that
+    // check can run.
+    void supabase.realtime.setAuth();
     const channel = supabase.channel(`song-presence:${songId}`, {
-      config: { presence: { key: me.id }, broadcast: { self: false } },
+      config: { private: true, presence: { key: me.id }, broadcast: { self: false } },
     });
     let subscribed = false;
 

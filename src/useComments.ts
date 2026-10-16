@@ -32,7 +32,9 @@ export function useComments(trackId: string | null, sceneId: string | null, auth
 
   useEffect(() => {
     if (!trackId) return;
-    const channel = supabase.channel(`song-comments:${trackId}`);
+    // Private: admitted only to scene members by realtime.messages RLS (0018).
+    void supabase.realtime.setAuth();
+    const channel = supabase.channel(`song-comments:${trackId}`, { config: { private: true } });
     channel.on("broadcast", { event: "changed" }, () => void refetch());
     channel.subscribe();
     channelRef.current = channel;
