@@ -297,6 +297,12 @@ export function detectTempo(env: Float32Array, envRate: number): TempoResult {
 export interface ChromaResult {
   /** Energy per pitch class, normalised to a maximum of 1. */
   chroma: number[];
+  /**
+   * Energy per pitch class from the bass register only (~40–260 Hz), normalised.
+   * The bass note is what tells a chord's root and quality apart — Fm from Bbm,
+   * a major from its relative minor — so chord matching weights it.
+   */
+  bass: number[];
   /** Cents away from A440, positive meaning sharp. */
   tuningCents: number;
 }
@@ -313,9 +319,14 @@ export function chromagram(
   frameSize = HARMONY_FRAME,
 ): ChromaResult {
   const chroma = Array.from({ length: 12 }, () => 0);
+  const bass = Array.from({ length: 12 }, () => 0);
   const binHz = sampleRate / frameSize;
   const lowBin = Math.max(2, Math.floor(65 / binHz)); // C2
   const highBin = Math.min(frames[0]?.length ?? 0, Math.floor(2100 / binHz)); // ~C7
+  // The bass register — low E on a bass/piano up to the low-mids. Its own peak
+  // picking, so a loud midrange pad can't drown out the root in the low end.
+  const bassLowBin = Math.max(2, Math.floor(40 / binHz));
+  const bassHighBin = Math.min(frames[0]?.length ?? 0, Math.floor(260 / binHz));
 
   let deviationSum = 0;
   let deviationWeight = 0;
@@ -368,11 +379,29 @@ export function chromagram(
       }
       chroma[((nearest % 12) + 12) % 12] += weight;
     }
+
+    // Bass register, its own peak picking, folded to pitch classes.
+    let bassFrameMax = 0;
+    for (let b = bassLowBin; b < bassHighBin; b += 1) if (mag[b] > bassFrameMax) bassFrameMax = mag[b];
+    if (bassFrameMax > 0) {
+      const bassFloor = bassFrameMax * 0.05;
+      for (let b = bassLowBin + 1; b < bassHighBin - 1; b += 1) {
+        const v = mag[b];
+        if (v < bassFloor) continue;
+        if (v <= mag[b - 1] || v < mag[b + 1]) continue; // not a peak
+        const hz = b * binHz;
+        if (hz <= 0) continue;
+        const nearest = Math.round(69 + 12 * Math.log2(hz / refA));
+        bass[((nearest % 12) + 12) % 12] += Math.sqrt(v / bassFrameMax);
+      }
+    }
   }
 
   const max = Math.max(...chroma);
+  const bassPeak = Math.max(...bass);
   return {
     chroma: max > 0 ? chroma.map((c) => c / max) : chroma,
+    bass: bassPeak > 0 ? bass.map((c) => c / bassPeak) : bass,
     tuningCents: deviationWeight > 0 ? Math.round((deviationSum / deviationWeight) * 100) : 0,
   };
 }
@@ -481,6 +510,9 @@ const KNOWN_EXTENSION_MARGIN = 0.06;
  *  not an override: if the audio clearly disagrees, the audio still wins. */
 const VOCABULARY_BONUS = 0.1;
 const DIATONIC_BONUS = 0.04;
+/** The bass note is a strong cue for the root — a bigger nudge than the key
+ *  hint, but still a nudge, so an inversion or a walking bass can override it. */
+const BASS_BONUS = 0.14;
 
 /**
  * What the track already tells us about itself.
@@ -523,11 +555,16 @@ export interface ChordSegment {
 
 function matchChord(
   chroma: number[],
+  bass: number[],
   hints: ChordHints = {},
 ): { label: string; confidence: number } | null {
   const max = Math.max(...chroma);
   if (max <= 0) return null;
   const norm = chroma.map((c) => c / max);
+
+  // The dominant bass pitch class, if the low end said anything this segment.
+  const bassPeak = Math.max(...bass);
+  const bassRoot = bassPeak > 0 ? bass.indexOf(bassPeak) : -1;
 
   const vocab = new Set(hints.vocabulary ?? []);
   const diatonic = hints.key ? diatonicRoots(hints.key) : null;
@@ -548,6 +585,8 @@ function matchChord(
      */
     if (vocab.has(PITCH_CLASSES[root] + suffix)) score += VOCABULARY_BONUS;
     else if (diatonic?.has(root)) score += DIATONIC_BONUS;
+    // A root sitting in the bass is the strongest hint there is on a real mix.
+    if (bassRoot >= 0 && root === bassRoot) score += BASS_BONUS;
     return score;
   };
 
@@ -607,17 +646,20 @@ export function detectChords(
 ): ChordSegment[] {
   if (frames.length === 0) return [];
   const frameSeconds = HARMONY_HOP / sampleRate;
-  // Prefer the known tempo over the detected one, so segments are real bars.
+  // Half-bar segments: chords commonly change mid-bar (Bbm | Gb within one bar),
+  // and a full-bar window blurs the two into one averaged chroma and keeps only
+  // the louder. Two beats catches the change; the merge below re-joins a chord
+  // that does hold a whole bar, so nothing is lost by going finer.
   const segBpm = hints.bpm ?? bpm;
-  const segmentSeconds = segBpm ? Math.max(0.35, (60 / segBpm) * 4) : 0.5;
+  const segmentSeconds = segBpm ? Math.max(0.3, (60 / segBpm) * 2) : 0.5;
   const framesPerSegment = Math.max(2, Math.round(segmentSeconds / frameSeconds));
 
   const raw: ChordSegment[] = [];
   for (let start = 0; start < frames.length; start += framesPerSegment) {
     const slice = frames.slice(start, start + framesPerSegment);
     if (slice.length < 2) break;
-    const { chroma } = chromagram(slice, sampleRate);
-    const match = matchChord(chroma, hints);
+    const { chroma, bass } = chromagram(slice, sampleRate);
+    const match = matchChord(chroma, bass, hints);
     if (match) raw.push({ at: start * frameSeconds, label: match.label, confidence: match.confidence });
   }
 
