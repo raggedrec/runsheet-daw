@@ -644,6 +644,11 @@ export default function DawApp() {
         // Heal a session saved before amp-removal cleaned up its model box, so an
         // orphan from back then doesn't crash the engine on open.
         pruneOrphanedModels(reopened.project);
+        // Turn the loop off, same as the fresh-load path: openDAW restores with a
+        // loop area, and a saved session can carry one too, so a reopen would wrap
+        // the first bars (play past bar 4 only after clicking ahead). No loop UI,
+        // so it's always off.
+        reopened.project.editing.modify(() => reopened.project.timelineBox.loopArea.enabled.setValue(false));
         const prepared = await prepareSamples(
           reopened.sampleService,
           files,
