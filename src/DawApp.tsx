@@ -609,6 +609,12 @@ export default function DawApp() {
    * reason). One gesture means one load.
    */
   const opening = useRef(false);
+  // The project whose worklet we started this attempt. openDAW connects the
+  // worklet to the shared AudioContext's single destination, so a failed open
+  // that left one running poisons the context — the next attempt stacks a second
+  // worklet and deadlocks, which is why it used to take a hard refresh to recover.
+  // Terminating it on failure disconnects that node so a retry starts clean.
+  const startedProject = useRef<DawSession["project"] | null>(null);
 
   /** Start the audio engine and pull the song's stems in. One gesture. */
   const open = useCallback(async () => {
@@ -679,6 +685,8 @@ export default function DawApp() {
           );
           const mergedLanes = missing.length > 0 ? await buildStemLanes(reopened.project, missing) : [];
 
+          // Track it before the worklet starts, so a timeout here still tears down.
+          startedProject.current = reopened.project;
           await startSessionEngine(reopened.project);
           setSession(reopened);
           setLanes([...savedLanes, ...mergedLanes]);
@@ -691,6 +699,7 @@ export default function DawApp() {
       }
 
       const created = await createSession(bootResult);
+      startedProject.current = created.project;
       setSession(created);
 
       const result = await loadSongIntoProject(
@@ -703,6 +712,13 @@ export default function DawApp() {
       setLanes(result);
       setStage({ name: "loaded" });
     } catch (err) {
+      // Tear down a worklet this attempt started, so the shared AudioContext is
+      // clean and the next open doesn't stack a second engine (the hard-refresh
+      // trap). The reopened/fresh project that failed is dropped with it.
+      if (startedProject.current) {
+        try { startedProject.current.terminate(); } catch { /* already gone */ }
+        startedProject.current = null;
+      }
       // Let a fresh attempt through after a failure — the guard is only against
       // concurrent double-fires, not a permanent latch.
       opening.current = false;
