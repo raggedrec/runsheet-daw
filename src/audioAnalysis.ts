@@ -654,14 +654,29 @@ export function detectChords(
   const segmentSeconds = segBpm ? Math.max(0.3, (60 / segBpm) * 2) : 0.5;
   const framesPerSegment = Math.max(2, Math.round(segmentSeconds / frameSeconds));
 
-  const raw: ChordSegment[] = [];
+  // One label per slot (null where nothing scored), so smoothing can reason
+  // about time rather than only the chords that happened to match.
+  const slots: { at: number; label: string | null; confidence: number }[] = [];
   for (let start = 0; start < frames.length; start += framesPerSegment) {
     const slice = frames.slice(start, start + framesPerSegment);
     if (slice.length < 2) break;
     const { chroma, bass } = chromagram(slice, sampleRate);
     const match = matchChord(chroma, bass, hints);
-    if (match) raw.push({ at: start * frameSeconds, label: match.label, confidence: match.confidence });
+    slots.push({ at: start * frameSeconds, label: match?.label ?? null, confidence: match?.confidence ?? 0 });
   }
+
+  // Smooth single-slot flickers: a lone chord between two slots that agree is
+  // almost always a passing tone outvoting the real harmony for half a bar —
+  // adopt the neighbours' chord. One left-to-right pass clears the isolated ones
+  // without erasing a genuine two-slot change.
+  for (let i = 1; i < slots.length - 1; i += 1) {
+    const prev = slots[i - 1].label;
+    if (prev && prev === slots[i + 1].label && slots[i].label !== prev) slots[i].label = prev;
+  }
+
+  const raw: ChordSegment[] = slots
+    .filter((s): s is { at: number; label: string; confidence: number } => s.label !== null)
+    .map((s) => ({ at: s.at, label: s.label, confidence: s.confidence }));
 
   // Merge runs of the same chord, and drop anything that lasted a blink —
   // usually a passing tone briefly outvoting the real harmony.
