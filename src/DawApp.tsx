@@ -23,7 +23,7 @@ import {
 } from "./opendaw/loadSong";
 import { loadSong, playableFiles, currentUser, LoadError, type Song, type SongFile } from "./runsheet";
 import { isConfigured, requestedSong, supabase } from "./supabase";
-import { S } from "./styles";
+import { shell } from "./styles";
 import { Timeline } from "./Timeline";
 import { TransportBar } from "./TransportBar";
 import { useLook } from "./useLook";
@@ -552,6 +552,7 @@ export default function DawApp() {
   }, [problems, autoOpened]);
   const skin = skins[look.skin];
   const accent = accents[look.accent];
+  const sh = shell(skin, accent.solid);
 
   /*
    * The page background follows the skin. Set on <body> rather than a wrapper
@@ -1419,15 +1420,15 @@ export default function DawApp() {
                */
               overflowX: "hidden",
               overflowY: "auto",
-              font: `13px/1.5 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif`,
+              font: `13px/1.5 ${font.body}`,
             }
-          : { ...S.page, color: skin.fg, maxWidth: 1180 }
+          : { ...sh.page, color: skin.fg, maxWidth: 1180 }
       }
     >
-      {stage.name !== "loaded" && <header style={S.header}>
+      {stage.name !== "loaded" && <header style={sh.header}>
         <div>
-          <h1 style={S.h1}>{song?.name ?? "Run Sheet — DAW"}</h1>
-          <p style={S.sub}>
+          <h1 style={sh.h1}>{song?.name ?? "Run Sheet — DAW"}</h1>
+          <p style={sh.sub}>
             {song
               ? [song.sceneName, song.bpm ? `${song.bpm} BPM` : null, song.key]
                   .filter(Boolean)
@@ -1437,16 +1438,16 @@ export default function DawApp() {
         </div>
       </header>}
 
-      {stage.name === "booting" && <p style={S.note}>Starting…</p>}
+      {stage.name === "booting" && <p style={sh.note}>Starting…</p>}
 
       {stage.name === "blocked" && (
-        <section style={S.panelBad}>
-          <p style={S.badTitle}>{stage.message}</p>
-          {stage.remedy && <p style={S.note}>{stage.remedy}</p>}
+        <section style={sh.panelBad}>
+          <p style={sh.badTitle}>{stage.message}</p>
+          {stage.remedy && <p style={sh.note}>{stage.remedy}</p>}
           {signedIn === false && (
-            <p style={S.note}>
+            <p style={sh.note}>
               You don't appear to be signed in on this address.{" "}
-              <a href="https://raggedcompanyrecordings.com/runsheet/" style={S.a}>
+              <a href="https://raggedcompanyrecordings.com/runsheet/" style={sh.a}>
                 Sign in to Run Sheet
               </a>{" "}
               and press DAW again.
@@ -1880,17 +1881,17 @@ export default function DawApp() {
         A LICENSE file in the repo doesn't discharge that — the running app has
         to offer it, which is what this link is.
       */}
-      <footer style={S.footer}>
+      <footer style={sh.footer}>
         Run Sheet DAW is free software under the{" "}
-        <a href="https://www.gnu.org/licenses/agpl-3.0.html" style={S.a}>
+        <a href="https://www.gnu.org/licenses/agpl-3.0.html" style={sh.a}>
           GNU AGPL v3
         </a>
         .{" "}
-        <a href="https://github.com/raggedrec/runsheet-daw" style={S.a}>
+        <a href="https://github.com/raggedrec/runsheet-daw" style={sh.a}>
           Source code
         </a>
         . Built on{" "}
-        <a href="https://opendaw.org" style={S.a}>
+        <a href="https://opendaw.org" style={sh.a}>
           openDAW
         </a>
         .
