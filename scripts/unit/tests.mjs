@@ -12,7 +12,7 @@
  */
 import { formatTime, formatBars } from "./bundle.mjs";
 import { laneName, tempoOf, formatKey } from "./bundle.mjs";
-import { sanitizeLook, laneColorFor, LANE_HEIGHT, DEFAULT_LOOK } from "./bundle.mjs";
+import { sanitizeLook, migrateLook, laneColorFor, LANE_HEIGHT, LOOK_REV, DEFAULT_LOOK } from "./bundle.mjs";
 import { encodeWav } from "./bundle.mjs";
 import { bandMagnitudeDb, eqResponseDb } from "./bundle.mjs";
 import { chordIndexAt, chordToMidi, rebaseChords, nameChord, extractChordsFromSmf } from "./bundle.mjs";
@@ -100,6 +100,22 @@ eq("height clamps low", sanitizeLook({ laneHeight: 2 }).laneHeight, LANE_HEIGHT.
 eq("height clamps high", sanitizeLook({ laneHeight: 9000 }).laneHeight, LANE_HEIGHT.max);
 eq("garbage height falls back", sanitizeLook({ laneHeight: "tall" }).laneHeight, LANE_HEIGHT.default);
 eq("null is survivable", sanitizeLook(null).skin, DEFAULT_LOOK.skin);
+
+console.log("  look migration moves older browsers to the refreshed default once");
+{
+  // A look saved before the refresh (rev 0) is pulled to the new default,
+  // but the lane height the user set is kept.
+  const old = sanitizeLook({ skin: "light", accent: "blue", laneHeight: 120, colorWaveforms: false });
+  const m = migrateLook(old, 0);
+  ok("pre-refresh look adopts the default", m.skin === DEFAULT_LOOK.skin && m.accent === DEFAULT_LOOK.accent);
+  eq("lane height is preserved across migration", m.laneHeight, 120);
+}
+{
+  // Already migrated (rev === LOOK_REV): leave whatever the user has chosen.
+  const chosen = sanitizeLook({ skin: "light", accent: "teal", laneHeight: 70 });
+  const m = migrateLook(chosen, LOOK_REV);
+  ok("a migrated browser keeps its own pick", m.skin === "light" && m.accent === "teal");
+}
 
 console.log("  lane colours are by role, not position");
 ok("drums always the same", laneColorFor("Drums") === laneColorFor("DRUMS"));

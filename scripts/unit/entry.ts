@@ -8,7 +8,7 @@
  */
 export { formatTime, formatBars } from "../../src/TransportBar";
 export { laneName, tempoOf, formatKey } from "../../src/naming";
-export { sanitizeLook, laneColorFor, LANE_HEIGHT, DEFAULT_LOOK } from "../../src/theme";
+export { sanitizeLook, migrateLook, laneColorFor, LANE_HEIGHT, LOOK_REV, DEFAULT_LOOK } from "../../src/theme";
 export { encodeWav } from "../../src/wav";
 export { bandMagnitudeDb, eqResponseDb } from "../../src/eqResponse";
 export {

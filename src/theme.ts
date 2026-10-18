@@ -242,3 +242,20 @@ export function sanitizeLook(raw: unknown): Look {
     colorWaveforms: l.colorWaveforms === true,
   };
 }
+
+/**
+ * One-time look migration. Bumping LOOK_REV moves every returning browser onto
+ * the current DEFAULT_LOOK once. Before the dark + amber refresh a saved look
+ * from an older build — usually light + blue — hid the new default entirely,
+ * because a stored preference always wins over it, so the refresh would never
+ * reach anyone who had opened the app before.
+ *
+ * Lane height is kept: it's ergonomics, set deliberately, not part of the look
+ * being refreshed. useLook records the rev after applying this, so it fires a
+ * single time per browser; whatever the user picks afterwards sticks.
+ */
+export const LOOK_REV = 1;
+
+export function migrateLook(stored: Look, rev: number): Look {
+  return rev < LOOK_REV ? { ...DEFAULT_LOOK, laneHeight: stored.laneHeight } : stored;
+}
