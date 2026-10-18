@@ -17,6 +17,8 @@
 import type { StoredAnalysis } from "./chords";
 
 export const CHORD_API_URL = (import.meta.env?.VITE_CHORD_API_URL as string | undefined)?.replace(/\/$/, "");
+/** Shared secret the backend checks (when it's configured to). Sent as X-API-Key. */
+const CHORD_API_KEY = import.meta.env?.VITE_CHORD_API_KEY as string | undefined;
 
 /**
  * A real mix takes the model a while; past this it is not coming back. One
@@ -127,7 +129,12 @@ export async function analyzeChordsRemote(
     const form = new FormData();
     form.append("file", blob, "track.audio");
     for (const [k, v] of Object.entries(extra)) form.append(k, v);
-    const res = await fetch(`${CHORD_API_URL}${path}`, { method: "POST", body: form, signal });
+    const res = await fetch(`${CHORD_API_URL}${path}`, {
+      method: "POST",
+      body: form,
+      signal,
+      headers: CHORD_API_KEY ? { "X-API-Key": CHORD_API_KEY } : undefined,
+    });
     if (!res.ok) throw new Error(`${path} failed (${res.status})`);
     return res.json();
   };
