@@ -7,23 +7,39 @@
  *
  * Everything read back is passed through sanitizeLook, because a value written
  * by an older build — or edited by hand — must not be able to produce an
- * unusable screen.
+ * unusable screen. On top of that, migrateLook runs once per browser (keyed by
+ * REV_KEY) to move a look saved before the current refresh onto the new
+ * default; see theme.ts.
  */
 import { useCallback, useEffect, useState } from "react";
-import { DEFAULT_LOOK, sanitizeLook, type Look } from "./theme";
+import { DEFAULT_LOOK, LOOK_REV, migrateLook, sanitizeLook, type Look } from "./theme";
 
 const KEY = "runsheet-daw-look";
+const REV_KEY = "runsheet-daw-look-rev";
 
 export function useLook(): [Look, (patch: Partial<Look>) => void] {
   const [look, setLook] = useState<Look>(() => {
     try {
       const raw = window.localStorage.getItem(KEY);
-      return raw ? sanitizeLook(JSON.parse(raw)) : DEFAULT_LOOK;
+      const stored = raw ? sanitizeLook(JSON.parse(raw)) : DEFAULT_LOOK;
+      const rev = Number(window.localStorage.getItem(REV_KEY) ?? 0);
+      return migrateLook(stored, Number.isFinite(rev) ? rev : 0);
     } catch {
       // Private browsing, or corrupt JSON. Neither is worth failing over.
       return DEFAULT_LOOK;
     }
   });
+
+  // Record the migration once, so it can't re-fire on a later visit. If this
+  // write fails (private browsing), the migration simply runs again next time,
+  // which is harmless — it only ever rewrites to the same default.
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(REV_KEY, String(LOOK_REV));
+    } catch {
+      /* see above */
+    }
+  }, []);
 
   useEffect(() => {
     try {
