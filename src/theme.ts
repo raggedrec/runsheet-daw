@@ -31,6 +31,12 @@ export const brand = {
   red: "#C0453B",
   amber: "#C88B00",
   teal: "#2A7F86",
+  /** The signature warm accent of the dark refresh — "tape" amber. Distinct
+   *  from brand.amber above, which stays the darker tone used as a palette
+   *  swatch; the clay reads as a deliberate accent on the near-black ground. */
+  clay: "#E6A35C",
+  clayDeep: "#CE8B45",
+  lilac: "#9E8AD6",
 } as const;
 
 /**
@@ -53,7 +59,7 @@ export const control = {
 export const accents = {
   blue: { name: "Blue", solid: brand.blue, hover: brand.blueDeep, fg: "#FFFFFF" },
   teal: { name: "Teal", solid: brand.teal, hover: "#1F6167", fg: "#FFFFFF" },
-  amber: { name: "Amber", solid: brand.amber, hover: "#9E6E00", fg: "#1B2430" },
+  amber: { name: "Amber", solid: brand.clay, hover: brand.clayDeep, fg: "#241603" },
   red: { name: "Red", solid: brand.red, hover: "#9C352C", fg: "#FFFFFF" },
 } as const;
 
@@ -104,30 +110,37 @@ const light: Skin = {
 
 const dark: Skin = {
   name: "dark",
-  bg: "#12171D",
-  surface: "#1A212A",
-  surfaceSunken: "#161C23",
-  fg: "#E8EDF3",
-  fgMuted: "rgba(232,237,243,.66)",
-  fgSubtle: "rgba(232,237,243,.40)",
-  border: "rgba(232,237,243,.13)",
-  borderStrong: "rgba(232,237,243,.30)",
-  lane: "#161C23",
-  laneAlt: "#1A212A",
-  laneLine: "rgba(232,237,243,.11)",
+  bg: "#0E1116",
+  surface: "#161C23",
+  surfaceSunken: "#10151B",
+  fg: "#ECEFF3",
+  fgMuted: "rgba(236,239,243,.64)",
+  fgSubtle: "rgba(236,239,243,.40)",
+  border: "rgba(236,239,243,.10)",
+  borderStrong: "rgba(236,239,243,.26)",
+  lane: "#11151B",
+  laneAlt: "#141922",
+  laneLine: "rgba(236,239,243,.08)",
   wave: "#D8E2EC",
-  waveMuted: "rgba(216,226,236,.24)",
-  gridBar: "rgba(232,237,243,.22)",
-  gridBeat: "rgba(232,237,243,.07)",
-  slot: "rgba(232,237,243,.14)",
+  waveMuted: "rgba(216,226,236,.22)",
+  gridBar: "rgba(236,239,243,.20)",
+  gridBeat: "rgba(236,239,243,.06)",
+  slot: "rgba(236,239,243,.13)",
 };
 
 export const skins: Record<SkinName, Skin> = { light, dark };
 
-/** Run Sheet's stack: system UI for chrome, mono where digits must not jitter. */
+/**
+ * The type stack. IBM Plex Sans for chrome, IBM Plex Mono wherever digits must
+ * not jitter, Space Grotesk for titles and the wordmark. All three are
+ * self-hosted via @fontsource (imported in main.tsx): the page is cross-origin
+ * isolated (COEP require-corp) and cannot pull webfonts from a CDN. Each stack
+ * keeps a system fallback so the UI stays legible if a face fails to load.
+ */
 export const font = {
-  body: 'ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif',
-  mono: 'ui-monospace, SFMono-Regular, Menlo, "JetBrains Mono", monospace',
+  body: '"IBM Plex Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif',
+  mono: '"IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, "JetBrains Mono", monospace',
+  display: '"Space Grotesk", "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif',
 } as const;
 
 export const size = { xs: 11, sm: 12, base: 13, md: 15, lg: 19, xl: 24 } as const;
@@ -139,21 +152,23 @@ export const radius = { sm: 4, md: 6, lg: 8, pill: 999 } as const;
  *
  * Position-based colours change meaning whenever a stem is added, so a session
  * looks different every time it's opened. Role-based ones stay put: drums are
- * always red, vocals always amber. These tint the lane header only — never the
- * waveform, whose contrast is set by the skin and left alone.
+ * always red, vocals always lilac. These tint the lane header only — never the
+ * waveform, whose contrast is set by the skin and left alone. Tuned brighter
+ * for the dark refresh so each role reads at a glance against the near-black
+ * lanes, and so vocals sit clear of the amber accent.
  */
 const roleColors: ReadonlyArray<readonly [RegExp, string]> = [
   [/drum|kick|snare|perc|\bdr\b/i, brand.red],
-  [/bass|\bbs\b|808/i, "#7A5230"],
-  [/vox|voc|vcl|sing|lead/i, brand.amber],
-  [/gtr|guit|aco|acou|elec/i, "#8A6B2F"],
-  [/key|pian|rhod|wurl|organ|synth|pad/i, brand.teal],
+  [/bass|\bbs\b|808/i, "#CF9A4E"],
+  [/vox|voc|vcl|sing|lead/i, brand.lilac],
+  [/gtr|guit|aco|acou|elec/i, "#C7A24A"],
+  [/key|pian|rhod|wurl|organ|synth|pad/i, "#52ABCC"],
   [/mix|master|full|ref/i, brand.blue],
 ];
 
 export function laneColorFor(name: string): string {
   for (const [pattern, color] of roleColors) if (pattern.test(name)) return color;
-  return "#6B7B8C";
+  return "#8A94A0";
 }
 
 /**
@@ -166,8 +181,8 @@ export function laneColorFor(name: string): string {
  * other.
  */
 export const TRACK_PALETTE: ReadonlyArray<string> = [
-  brand.red, brand.amber, control.solo, brand.teal, brand.blue,
-  "#3B9E5A", "#7A5230", "#8A6B2F", "#9C4F9C", "#6B7B8C",
+  brand.red, "#CF9A4E", brand.lilac, "#C7A24A", "#52ABCC",
+  brand.blue, control.solo, "#3B9E5A", "#9C4F9C", "#8A94A0",
 ];
 
 /**
@@ -203,7 +218,13 @@ export interface Look {
  */
 export const LANE_HEIGHT = { min: 44, max: 160, default: 84 } as const;
 
-export const DEFAULT_LOOK: Look = { skin: "light", accent: "blue", laneHeight: LANE_HEIGHT.default, colorWaveforms: false };
+/**
+ * The refresh opens dark, on the amber accent, with waveforms tinted to their
+ * stem's role colour — the direction Shayne signed off. A returning user's
+ * stored choice still wins (useLook reads localStorage first); this only sets
+ * what a fresh browser sees.
+ */
+export const DEFAULT_LOOK: Look = { skin: "dark", accent: "amber", laneHeight: LANE_HEIGHT.default, colorWaveforms: true };
 
 /** Clamps anything read back from storage, so a stale value can't break the UI. */
 export function sanitizeLook(raw: unknown): Look {
