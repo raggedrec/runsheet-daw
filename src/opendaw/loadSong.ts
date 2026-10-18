@@ -138,41 +138,49 @@ export async function prepareSamples(
   for (const [i, file] of files.entries()) {
     onProgress?.({ index: i + 1, total: files.length, name: file.name });
 
-    // Already in this browser's store? Skip the download and the decode.
-    const cachedUuid = readCache()[file.id];
-    if (cachedUuid !== undefined) {
-      const uuid = UUID.parse(cachedUuid);
-      if (await SampleStorage.get().exists(uuid)) {
-        const [audio, peaks, meta] = await SampleStorage.get().load(uuid);
-        prepared.push({
-          file,
-          sample: { uuid: cachedUuid, name: meta.name, duration: meta.duration, bpm: meta.bpm } as Sample,
-          audio,
-          peaks,
-          uuid,
-        });
-        continue;
+    // A single bad stem must not sink the whole song. The decode and the store
+    // reads below have no natural timeout, so a corrupt or unsupported file used
+    // to freeze the loader here with no way forward (the "stuck on load" reports).
+    // Bound each step and skip the file on failure, so the song opens with the
+    // stems that do work rather than hanging on the one that doesn't.
+    try {
+      // Already in this browser's store? Skip the download and the decode.
+      const cachedUuid = readCache()[file.id];
+      if (cachedUuid !== undefined) {
+        const uuid = UUID.parse(cachedUuid);
+        if (await withVisibleTimeout(SampleStorage.get().exists(uuid), 15000, `Checking the cache for ${file.name} took too long.`)) {
+          const [audio, peaks, meta] = await withVisibleTimeout(SampleStorage.get().load(uuid), 20000, `Loading ${file.name} from the cache took too long.`);
+          prepared.push({
+            file,
+            sample: { uuid: cachedUuid, name: meta.name, duration: meta.duration, bpm: meta.bpm } as Sample,
+            audio,
+            peaks,
+            uuid,
+          });
+          continue;
+        }
       }
+
+      const url = await signedUrl(file.storagePath);
+      const response = await fetchWithTimeout(url, file.name);
+      if (!response.ok) {
+        throw new Error(`Couldn't fetch ${file.name} (${response.status})`);
+      }
+      const arrayBuffer = await response.arrayBuffer();
+
+      const sample = await withVisibleTimeout(
+        sampleService.importFile({ name: file.name, bpm, arrayBuffer, origin: "import" }),
+        30000,
+        `Decoding ${file.name} took too long — it may be corrupt or an unsupported format.`,
+      );
+
+      const uuid = UUID.parse(sample.uuid);
+      const [audio, peaks] = await withVisibleTimeout(SampleStorage.get().load(uuid), 20000, `Loading ${file.name} took too long.`);
+      rememberSample(file.id, sample.uuid);
+      prepared.push({ file, sample, audio, peaks, uuid });
+    } catch (err) {
+      console.warn(`Skipping ${file.name} while loading the song:`, err);
     }
-
-    const url = await signedUrl(file.storagePath);
-    const response = await fetchWithTimeout(url, file.name);
-    if (!response.ok) {
-      throw new Error(`Couldn't fetch ${file.name} (${response.status})`);
-    }
-    const arrayBuffer = await response.arrayBuffer();
-
-    const sample = await sampleService.importFile({
-      name: file.name,
-      bpm,
-      arrayBuffer,
-      origin: "import",
-    });
-
-    const uuid = UUID.parse(sample.uuid);
-    const [audio, peaks] = await SampleStorage.get().load(uuid);
-    rememberSample(file.id, sample.uuid);
-    prepared.push({ file, sample, audio, peaks, uuid });
   }
   return prepared;
 }
