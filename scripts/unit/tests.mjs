@@ -17,6 +17,7 @@ import { encodeWav } from "./bundle.mjs";
 import { bandMagnitudeDb, eqResponseDb } from "./bundle.mjs";
 import { chordIndexAt, chordToMidi, rebaseChords, nameChord, extractChordsFromSmf } from "./bundle.mjs";
 import { chordsToSmf } from "./bundle.mjs";
+import { normalizeChordLabel, toStoredAnalysis } from "./bundle.mjs";
 import { snapToBeat } from "./bundle.mjs";
 import { classesForKey } from "./bundle.mjs";
 import {
@@ -311,6 +312,36 @@ console.log("  name a chord from its pitch classes (reverse of chordToMidi)");
   const a = pcsOf(chordToMidi("Fmaj7"));
   const b = pcsOf(chordToMidi(nameChord([...a]).label));
   ok("name → chordToMidi round-trips the pitch classes", a.size === b.size && [...a].every((x) => b.has(x)));
+}
+
+console.log("  ChordMini label → our label");
+{
+  ok("major drops the suffix", normalizeChordLabel("C:maj") === "C", normalizeChordLabel("C:maj"));
+  ok("minor → m", normalizeChordLabel("A:min") === "Am", normalizeChordLabel("A:min"));
+  ok("dominant 7", normalizeChordLabel("G:7") === "G7", normalizeChordLabel("G:7"));
+  ok("half-dim → m7b5", normalizeChordLabel("B:hdim7") === "Bm7b5", normalizeChordLabel("B:hdim7"));
+  ok("bass is dropped", normalizeChordLabel("C:maj/G") === "C", normalizeChordLabel("C:maj/G"));
+  ok("bare root is major", normalizeChordLabel("F#") === "F#", normalizeChordLabel("F#"));
+  ok("no-chord is skipped", normalizeChordLabel("N") === null);
+  ok("unknown is skipped", normalizeChordLabel("X") === null);
+}
+
+console.log("  ChordMini response → StoredAnalysis (merged)");
+{
+  const resp = {
+    success: true,
+    chords: [
+      { chord: "N", time: 0 },
+      { chord: "Bb:min", start: 2, confidence: 0.9 },
+      { chord: "Bb:min", start: 4, confidence: 0.8 },
+      { chord: "Gb:maj", start: 6, confidence: 0.7 },
+    ],
+  };
+  const a = toStoredAnalysis(resp, { bpm: 112 });
+  arr("no-chord dropped, repeats merged", a.chords.map((c) => c.label), ["Bbm", "Gb"]);
+  arr("times from start", a.chords.map((c) => c.at), [2, 6]);
+  ok("merge keeps the higher confidence", a.chords[0].confidence === 0.9, String(a.chords[0].confidence));
+  ok("bpm carried through", a.bpm === 112);
 }
 
 console.log("  extract chords from a MIDI file (reader ↔ writer round-trip)");

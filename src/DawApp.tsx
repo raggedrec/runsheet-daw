@@ -40,6 +40,7 @@ import { createChordTrack } from "./opendaw/midiChords";
 import { readLaneNotes, type LaneNotes } from "./opendaw/readNotes";
 import { chordsToSmf } from "./midiFile";
 import { extractChordsFromSmf } from "./midiRead";
+import { isChordApiConfigured, analyzeChordsRemote } from "./chordApi";
 import { MarkerStrip } from "./MarkerStrip";
 import {
   listMarkers, subscribeMarkers, addMarker, moveMarker, renameMarker, deleteMarker, hueFor,
@@ -472,14 +473,33 @@ export default function DawApp() {
     if (!target || analysing) return;
     setAnalysing(true);
     setChordError(null);
+    const isMidi = target.role === "midi" || /\.midi?$/i.test(target.name);
     try {
       const url = await signedUrl(target.storagePath);
+
+      // Trained backend first for audio, when one's configured — far better on
+      // real mixes than the browser DSP. Falls through to the browser engine if
+      // it's unreachable or errors, so the wand never hard-depends on it. MIDI
+      // is exact already and stays on the local reader below.
+      if (!isMidi && isChordApiConfigured()) {
+        try {
+          const analysis = await analyzeChordsRemote(url);
+          if (analysis.chords.length > 0) {
+            setSong((s) => (s ? { ...s, files: s.files.map((f) => (f.id === target.id ? { ...f, analysis } : f)) } : s));
+            await saveFileAnalysis(target.id, analysis);
+            return;
+          }
+        } catch (err) {
+          console.warn("Chord backend unavailable, using the browser engine:", err);
+        }
+      }
+
       const res = await fetch(url);
       if (!res.ok) throw new Error(`Couldn't fetch ${target.name} (HTTP ${res.status}).`);
 
       // A MIDI source needs no decode or FFT — read the notes and name them.
       // Flats when the song's key is a flat one, to match the written chart.
-      if (target.role === "midi" || /\.midi?$/i.test(target.name)) {
+      if (isMidi) {
         const flat = /[A-G]b/.test(song?.key ?? "");
         const chords = extractChordsFromSmf(await res.arrayBuffer(), flat);
         if (chords.length === 0) throw new Error("No chords found — the MIDI file has no notes.");

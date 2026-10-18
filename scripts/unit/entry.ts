@@ -17,5 +17,6 @@ export {
 export { chordIndexAt, chordToMidi, rebaseChords, nameChord } from "../../src/chords";
 export { chordsToSmf } from "../../src/midiFile";
 export { extractChordsFromSmf } from "../../src/midiRead";
+export { normalizeChordLabel, toStoredAnalysis } from "../../src/chordApi";
 export { snapToBeat } from "../../src/grid";
 export { classesForKey } from "../../src/audioAnalysis";
