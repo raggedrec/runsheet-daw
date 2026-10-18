@@ -27,7 +27,7 @@ import { shell } from "./styles";
 import { Timeline } from "./Timeline";
 import { TransportBar } from "./TransportBar";
 import { useLook } from "./useLook";
-import { accents, skins, font, size, space, laneColorFor, type Skin } from "./theme";
+import { accents, skins, font, size, space, radius, laneColorFor, type Skin } from "./theme";
 import { StartScreen } from "./StartScreen";
 import { LoadingPanel } from "./LoadingPanel";
 import { Mixer, audibility } from "./Mixer";
@@ -1512,6 +1512,7 @@ export default function DawApp() {
           />
 
           <PresenceBar peers={peers} skin={skin} />
+          <ShortcutsHelp skin={skin} />
 
           {/* The add-track form used to live here as a wide dead-space panel.
               Adding a track now happens in the track list (+ Add track) and the
@@ -1950,5 +1951,74 @@ function PresenceBar({ peers, skin }: { peers: ReadonlyArray<Peer>; skin: Skin }
         </span>
       ))}
     </div>
+  );
+}
+
+/** The keyboard shortcuts, as they're bound in the key handlers above. */
+const SHORTCUTS: ReadonlyArray<[string, string]> = [
+  ["Space", "Play / stop"],
+  ["R", "Record / stop"],
+  ["M", "Marker at playhead"],
+  ["[   ]", "Zoom out / in"],
+  [";   '", "Shorter / taller lanes"],
+  ["1–9", "Select a track"],
+  ["Del", "Delete selected chords"],
+  ["Esc", "Clear chord selection"],
+];
+
+/**
+ * A corner button that toggles a legend of the keyboard shortcuts. Lives here
+ * rather than in a doc so it's one keypress-glance away, and reads the same
+ * bindings the handlers use. Fixed to the corner so it never fights the layout.
+ */
+function ShortcutsHelp({ skin }: { skin: Skin }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      <button
+        onClick={() => setOpen((o) => !o)}
+        title="Keyboard shortcuts"
+        aria-label="Keyboard shortcuts"
+        style={{
+          position: "fixed", right: 14, bottom: 14, zIndex: 60,
+          width: 30, height: 30, borderRadius: 999, display: "grid", placeItems: "center",
+          background: skin.surface, color: skin.fgMuted,
+          border: `1px solid ${skin.borderStrong}`, cursor: "pointer",
+          font: `600 ${size.sm}px ${font.body}`, boxShadow: "0 2px 8px rgba(0,0,0,.35)",
+        }}
+      >
+        ⌨
+      </button>
+      {open && (
+        <>
+          <div onClick={() => setOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 60 }} />
+          <div
+            style={{
+              position: "fixed", right: 14, bottom: 52, zIndex: 61, width: 220,
+              background: skin.surface, border: `1px solid ${skin.borderStrong}`,
+              borderRadius: radius.md, boxShadow: "0 8px 24px rgba(0,0,0,.45)", padding: 10,
+            }}
+          >
+            <div style={{ font: `600 ${size.xs}px ${font.body}`, letterSpacing: ".07em", textTransform: "uppercase", color: skin.fgSubtle, marginBottom: 8 }}>
+              Keyboard shortcuts
+            </div>
+            {SHORTCUTS.map(([key, action]) => (
+              <div key={key} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, padding: "3px 0" }}>
+                <kbd
+                  style={{
+                    font: `600 ${size.xs}px ${font.mono}`, color: skin.fg,
+                    background: skin.surfaceSunken, border: `1px solid ${skin.border}`,
+                    borderRadius: radius.sm, padding: "1px 6px", whiteSpace: "nowrap",
+                  }}
+                >
+                  {key}
+                </kbd>
+                <span style={{ font: `${size.sm}px ${font.body}`, color: skin.fgMuted, textAlign: "right" }}>{action}</span>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+    </>
   );
 }
