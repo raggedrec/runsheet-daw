@@ -40,7 +40,7 @@ import { createChordTrack } from "./opendaw/midiChords";
 import { readLaneNotes, type LaneNotes } from "./opendaw/readNotes";
 import { chordsToSmf } from "./midiFile";
 import { extractChordsFromSmf } from "./midiRead";
-import { isChordApiConfigured, analyzeChordsRemote } from "./chordApi";
+import { isChordApiConfigured, analyzeChordsRemote, warmChordBackend } from "./chordApi";
 import { MarkerStrip } from "./MarkerStrip";
 import {
   listMarkers, subscribeMarkers, addMarker, moveMarker, renameMarker, deleteMarker, hueFor,
@@ -225,6 +225,12 @@ export default function DawApp() {
       audioFiles[0]
     );
   }, [audioFiles, chordSourceId]);
+
+  // Pre-warm the trained backend once a song's chord source is in view, so the
+  // first Analyse doesn't pay the cold start (and fall back to the browser DSP).
+  useEffect(() => {
+    if (chordFile && isChordApiConfigured()) warmChordBackend();
+  }, [chordFile?.id]);
 
   const pickChordSource = useCallback(
     (id: string) => {

@@ -32,6 +32,18 @@ export function isChordApiConfigured(): boolean {
   return Boolean(CHORD_API_URL);
 }
 
+/**
+ * Wake the scale-to-zero backend ahead of time so the first Analyse doesn't eat
+ * the ~30 s cold start (and fall back to the browser engine). Fire-and-forget:
+ * the info endpoint is cheap and unguarded, and we ignore the result — it only
+ * needs to trigger the machine to boot and load the model. Call it when audio is
+ * in view, before the user clicks.
+ */
+export function warmChordBackend(): void {
+  if (!CHORD_API_URL) return;
+  void fetch(`${CHORD_API_URL}/api/chord-model-info`, { method: "GET" }).catch(() => {});
+}
+
 interface ChordMiniChord {
   chord: string;
   start?: number;
@@ -126,17 +138,26 @@ export async function analyzeChordsRemote(
   const blob = await audioRes.blob();
 
   const post = async (path: string, extra: Record<string, string> = {}) => {
-    const form = new FormData();
-    form.append("file", blob, "track.audio");
-    for (const [k, v] of Object.entries(extra)) form.append(k, v);
-    const res = await fetch(`${CHORD_API_URL}${path}`, {
-      method: "POST",
-      body: form,
-      signal,
-      headers: CHORD_API_KEY ? { "X-API-Key": CHORD_API_KEY } : undefined,
-    });
-    if (!res.ok) throw new Error(`${path} failed (${res.status})`);
-    return res.json();
+    // Retry the cold-start window: the machine wakes in ~1 s but the app isn't
+    // listening until the model loads (~30 s), and the proxy returns 502/3/4
+    // meanwhile. Wait and retry rather than giving up to the browser engine.
+    for (let attempt = 0; ; attempt += 1) {
+      const form = new FormData();
+      form.append("file", blob, "track.audio");
+      for (const [k, v] of Object.entries(extra)) form.append(k, v);
+      const res = await fetch(`${CHORD_API_URL}${path}`, {
+        method: "POST",
+        body: form,
+        signal,
+        headers: CHORD_API_KEY ? { "X-API-Key": CHORD_API_KEY } : undefined,
+      });
+      if (res.ok) return res.json();
+      if ((res.status === 502 || res.status === 503 || res.status === 504) && attempt < 5) {
+        await new Promise((r) => setTimeout(r, 8000));
+        continue;
+      }
+      throw new Error(`${path} failed (${res.status})`);
+    }
   };
 
   const chordResp = (await post("/api/recognize-chords", opts.model ? { model: opts.model } : {})) as ChordMiniResponse;
